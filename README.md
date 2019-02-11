@@ -34,14 +34,14 @@ $ nix-user-chroot ~/.nix bash
 $ curl https://nixos.org/nix/install | bash
 ```
 
-The installation itself will not work on NixOS this way, because your start with
-an empty nix store and miss therefor tools like bash and coreutils.
-You won't need nix-user-chroot on NixOS anyway since you
-can get similar functionality using `nix run --store ~/.nix nixpkgs.bash nixpkgs.coreutils`:
+The installation described here will not work on NixOS this way, because you
+start with an empty nix store and miss therefore tools like bash and coreutils.
+You won't need `nix-user-chroot` on NixOS anyway since you can get similar
+functionality using `nix run --store ~/.nix nixpkgs.bash nixpkgs.coreutils`:
 
 ## Usage
 
-After installation you can always get into the nix user chroot usin:
+After installation you can always get into the nix user chroot using:
 
 ```console
 $ nix-user-chroot ~/.nix bash
