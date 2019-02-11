@@ -26,8 +26,8 @@ script:
   - cargo build --release --target $TARGET --locked
   - strip target/$TARGET/release/nix-user-chroot
 before_deploy:
-  - name="cntr-$TRAVIS_TAG-$TARGET"
-  - depsname="cntr-src-$TRAVIS_TAG"
+  - name="nix-user-chroot-$TRAVIS_TAG-$TARGET"
+  - depsname="nix-user-chroot-src-$TRAVIS_TAG"
   - install -D target/$TARGET/release/nix-user-chroot $name/nix-user-chroot
   - install -D target/$TARGET/release/nix-user-chroot nix-user-chroot-bin-$TRAVIS_TAG-$TARGET
   - mkdir $depsname
