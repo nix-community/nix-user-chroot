@@ -8,10 +8,16 @@ This forks also makes it possible to use the nix sandbox!
 
 Run and install nix as user without root permissions. Nix-user-chroot requires
 username spaces to perform its task (available since linux 3.8). Note that this
-is not available by default in some Linux distributions such as Redhat, Centos
-and Archlinux. It should be available in Ubuntu and Debian.
+is not available for unprivileged users in some Linux distributions such as
+Red Hat Linux, CentOS and Archlinux when using the stock kernel. It should be available
+in Ubuntu and Debian.
 
-## Build
+## Download static binaries
+
+Checkout the [releases tab](https://github.com/nix-community/nix-user-chroot/releases)
+and download the binary matching your architecture.
+
+## Build from source
 
 ```console
 $ git clone https://github.com/nix-community/nix-user-chroot
