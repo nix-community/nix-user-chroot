@@ -4,42 +4,36 @@ rust: stable
 cache: cargo
 env:
   global:
-    - CARGO_VENDOR_VERSION=0.1.23
-  matrix:
-    - TARGET=x86_64-unknown-linux-musl
-    - TARGET=i686-unknown-linux-musl
-    - TARGET=aarch64-unknown-linux-musl
-    - TARGET=armv7-unknown-linux-musleabihf
-
+  - CARGO_VENDOR_VERSION=0.1.23
+matrix:
+  include:
+    - env: TARGET=x86_64-unknown-linux-musl
+    - env: TARGET=i686-unknown-linux-musl
+    # TODO
+    #- env: TARGET=aarch64-unknown-linux-musl
+    #  sudo: required
+    #- env: TARGET=armv7-unknown-linux-musleabihf
+    #  addons:
+    #    apt:
+    #      packages:
+    #        - gcc-arm-linux-gnueabihf
 install:
-  - curl -sSfL https://github.com/alexcrichton/cargo-vendor/releases/download/${CARGO_VENDOR_VERSION}/cargo-vendor-${CARGO_VENDOR_VERSION}-x86_64-unknown-linux-musl.tar.gz | tar xzf - -C $HOME/bin --strip-components=1
-  - cargo vendor --version
-  - rustup target add $TARGET
-
+- curl -sSfL https://github.com/alexcrichton/cargo-vendor/releases/download/${CARGO_VENDOR_VERSION}/cargo-vendor-${CARGO_VENDOR_VERSION}-x86_64-unknown-linux-musl.tar.gz
+  | tar xzf - -C $HOME/bin --strip-components=1
+- cargo vendor --version
+- rustup target add $TARGET
 script:
-  - cargo build --release --target $TARGET --locked
-  - strip target/$TARGET/release/nix-user-chroot
-
+- if [[ $TARGET == "aarch64-unknown-linux-musl" ]]; then sudo apt-get install -y --force-yes --no-install-recommends gcc-aarch64-linux-gnu libc6-arm64-cross libc6-dev-arm64-cross; fi
+- cargo build --release --target $TARGET --locked
+- strip target/$TARGET/release/nix-user-chroot
 notifications:
   email:
     on_success: never
-
-before_deploy:
-  - name="nix-user-chroot-$TRAVIS_TAG-$TARGET"
-  - depsname="nix-user-chroot-src-$TRAVIS_TAG"
-  - install -D target/$TARGET/release/nix-user-chroot $name/nix-user-chroot
-  - install -D target/$TARGET/release/nix-user-chroot nix-user-chroot-bin-$TRAVIS_TAG-$TARGET
-  - mkdir $depsname
-  - git archive HEAD | tar -x -C $depsname
-  - cargo vendor
-  - mv vendor $depsname/
-  - tar czvf $depsname.tar.gz $depsname
-
 deploy:
   skip_cleanup: true
   provider: releases
   api_key:
-    secure: "Y6aR3PeWAWzvsndnMzgpN+ViCUNXYsMkZnIAqW3eSl7UVZcPNC75QrUn0fybVH43UE0FFSl96pmWyZ0Xs39C9YK3iBxC1tvyWHQhiC1/WK4o8x9Me6YBOOVZwIQNZnuNfN7Dx4D1jDiBmtjO61u5JmmQ5+CjCEp5jn60/wkrGoLk7Fm6/VHGbUml2P9CjdvAZ/jlJxnCdYfOc3vhFgR9o8SRECUiimwiBBPRHXlxFbl7bExcH/Ut3BnJCMekLyDnTzDAsKcHEypPpzqhkEiM9beDYPvATwUsK04FTxDCmV4/FmfemMRghPUZ4F/pRVPfpsXvAnLaAGuEo4+2Gx08reg+u8l+049LBbOC4/xgtb0fUFYT5f41gIzz4mKtcAJeipr4djSHPGqj9bigUbZbTiebVuCiSPUOQgRrMHKkBDI20seSGicApFRz/iUDlC6Rz4F2C9inOLsQRjsvfzrVNuJe2gS2cLszG39Is6N+dgaxrxjETBDicQnNSQ9xTHZPLmrcSPg4c8Th5BwW0RILb6FF8kgbmMXje0RRWYo9yzpEYc5Wd6i2k2c0B3Egc7bP4qR/d3CQrrhMfcY2J8vmNiUX+xhjmzofdIFRBvrEVzeIG8pPG0XMw28uXxv8VAuNI2/TEe+MyNGnvLjw2xpiV/bu9XDDDv0Altmhj7T7h30="
+    secure: m6wa43gSK2bkqwjrFlDseoTFz91UuebQuo9kdrmzpAHsiPeBjf/R1g06WzCUiy+YOGOHic6/pMUrI/TlywNCCJP5S/RDsBBqmEAzzPurOUCCQDg21rBM3zb2voZKWQf0TtTHAAhizRCRGkDvuOUMXRTn9OuNd5J8FjpSLA/v/QT+o3UhTYgbSCmMZrKzyZim80hqRuJynjWFT7P0PoG7Nk8fj5lnEay27Lot2loL2cPuVJXrbA670K6py2xOiwfQPLxZ7oW+lDiLqJZ/BhfHn35SzMmY/e21vWXBpM4mWiVa7Oq/ArnppKMnB4G63gkNaH13qpd3NRWGxDoEtnt6c9tvFIywZXbewmQ5RQYDmQmwttMDG+IOZS4RTOyKf9TxvctLgwavT0kodW6z/Y+2p52wqaBrehz+bVU/R5iq9j869NrDAyPMi5hRcqnmSHKvAvmPETsALb06NX0Dko/ZEsjmJYRnm86bf0pjpZW0YZs4hHJiITPc6A6d3pjTml6vdr9luiY+wAjN499sML9YNFJg+6xiz6k7TbwgIVhw5PVsy0x2IjGvzbVF7xSgx3dtx67JuD3kA5LUWQ/0+X2P8IIjAwYJ6yUNVLofZziZQ7gyGn5uyFGjKFftGGbmaXc9jNTIM52hlT7h0ezEnC6MMoitR4ajBoDLJBiaWs2uVL4=
   file_glob: true
   file:
     - nix-user-chroot-$TRAVIS_TAG-$TARGET.tar.gz
