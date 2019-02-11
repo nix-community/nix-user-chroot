@@ -60,11 +60,11 @@ $ cargo build --release --target=x86_64-unknown-linux-musl
 
 ## Installation
 
+This will download and extract latest nix binary tarball from the chroot:
+
 ```console
 $ mkdir -m 0755 ~/.nix
-$ nix-user-chroot ~/.nix bash
-# download and extract latest nix binary tarball from the chroot
-$ curl https://nixos.org/nix/install | bash
+$ nix-user-chroot ~/.nix bash -c "curl https://nixos.org/nix/install | bash"
 ```
 
 The installation described here will not work on NixOS this way, because you
