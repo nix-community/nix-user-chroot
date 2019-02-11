@@ -23,6 +23,7 @@ install:
   - rustup target add $TARGET
 script:
   - if [[ $TARGET == "aarch64-unknown-linux-musl" ]]; then sudo apt-get install -y --force-yes --no-install-recommends gcc-aarch64-linux-gnu libc6-arm64-cross libc6-dev-arm64-cross; fi
+  - if [[ $TARGET == "x86_64-unknown-linux-musl" ]]; then cargo test; fi
   - cargo build --release --target $TARGET --locked
   - strip target/$TARGET/release/nix-user-chroot
 before_deploy:
