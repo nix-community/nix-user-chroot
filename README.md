@@ -86,3 +86,31 @@ owned by your user. Everything else is bind mounted from the real root.
 The nix config is not in `/etc/nix` but in `/nix/etc/nix`, so that you can
 modify it. This is done with the `NIX_CONF_DIR`, which you can override at any
 time.
+
+## Whishlist
+
+These are features the author would like to see, let me know, if you want to work
+on this:
+
+### Add an `--install` flag:
+
+Instead of
+
+```console
+$ mkdir -m 0755 ~/.nix
+$ nix-user-chroot ~/.nix bash -c "curl https://nixos.org/nix/install | bash"
+```
+
+it should just be:
+
+```console
+$ nix-user-chroot --install
+```
+
+This assumes we just install to `$XDG_DATA_HOME` or `$HOME/.data/nix` by default.
+
+### Add a setuid version
+
+Since not all linux distributions allow username spaces by default,
+we will need packages for those that install setuid binaries to 
+achieve the same.
