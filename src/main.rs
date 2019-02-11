@@ -26,7 +26,7 @@ fn bind_mount_direntry(entry: io::Result<fs::DirEntry>) {
     let path = entry.path();
     let stat = entry
         .metadata()
-        .expect(&format!("cannot get stat of {}", path.display()));
+        .unwrap_or_else(|_| panic!("cannot get stat of {}", path.display()));
     if !stat.is_dir() {
         return;
     }
@@ -35,7 +35,7 @@ fn bind_mount_direntry(entry: io::Result<fs::DirEntry>) {
     if let Err(e) = fs::create_dir(&mountpoint) {
         if e.kind() != io::ErrorKind::AlreadyExists {
             let e2: io::Result<()> = Err(e);
-            e2.expect(&format!("failed to create {}", &mountpoint.display()));
+            e2.unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
         }
     }
 
@@ -89,16 +89,16 @@ fn run_chroot(nixdir: &Path, rootdir: &Path, cmd: &str, args: &[String]) {
     // keep / clean is to hide the directory with another mountpoint. Therefore
     // we pivot the old root to /nix. This is somewhat confusing, though.
     let nix_mountpoint = rootdir.join("nix");
-    fs::create_dir(&nix_mountpoint).expect(&format!(
-        "failed to create {}/nix",
-        &nix_mountpoint.display()
-    ));
+    fs::create_dir(&nix_mountpoint)
+        .unwrap_or_else(|_| panic!("failed to create {}/nix", &nix_mountpoint.display()));
 
-    unistd::pivot_root(rootdir, &nix_mountpoint).expect(&format!(
-        "pivot_root({},{})",
-        rootdir.display(),
-        nix_mountpoint.display()
-    ));
+    unistd::pivot_root(rootdir, &nix_mountpoint).unwrap_or_else(|_| {
+        panic!(
+            "pivot_root({},{})",
+            rootdir.display(),
+            nix_mountpoint.display()
+        )
+    });
 
     env::set_current_dir("/").expect("cannot change directory to /");
 
@@ -119,10 +119,7 @@ fn run_chroot(nixdir: &Path, rootdir: &Path, cmd: &str, args: &[String]) {
         MsFlags::MS_BIND | MsFlags::MS_REC,
         NONE,
     )
-    .expect(&format!(
-        "failed to bind mount {} to /nix",
-        nix_store.display()
-    ));
+    .unwrap_or_else(|_| panic!("failed to bind mount {} to /nix", nix_store.display()));
 
     // fixes issue #1 where writing to /proc/self/gid_map fails
     // see user_namespaces(7) for more documentation
@@ -143,10 +140,8 @@ fn run_chroot(nixdir: &Path, rootdir: &Path, cmd: &str, args: &[String]) {
         .expect("failed to write new gid mapping to /proc/self/gid_map");
 
     // restore cwd
-    env::set_current_dir(&cwd).expect(&format!(
-        "cannot restore working directory {}",
-        cwd.display()
-    ));
+    env::set_current_dir(&cwd)
+        .unwrap_or_else(|_| panic!("cannot restore working directory {}", cwd.display()));
 
     let err = process::Command::new(cmd)
         .args(args)
@@ -166,28 +161,34 @@ fn wait_for_child(child_pid: unistd::Pid, tempdir: TempDir, rootdir: &Path) {
             }
             Ok(WaitStatus::Signaled(_, signal, _)) => {
                 kill(unistd::getpid(), signal)
-                    .expect(&format!("failed to send {} signal to our self", signal));
+                    .unwrap_or_else(|_| panic!("failed to send {} signal to our self", signal));
             }
             Ok(WaitStatus::Exited(_, status)) => {
-                tempdir.close().expect(&format!(
-                    "failed to remove temporary directory: {}",
-                    rootdir.display()
-                ));
+                tempdir.close().unwrap_or_else(|_| {
+                    panic!(
+                        "failed to remove temporary directory: {}",
+                        rootdir.display()
+                    )
+                });
                 process::exit(status);
             }
             Ok(what) => {
-                tempdir.close().expect(&format!(
-                    "failed to remove temporary directory: {}",
-                    rootdir.display()
-                ));
+                tempdir.close().unwrap_or_else(|_| {
+                    panic!(
+                        "failed to remove temporary directory: {}",
+                        rootdir.display()
+                    )
+                });
                 eprintln!("unexpected wait event happend: {:?}", what);
                 process::exit(1);
             }
             Err(e) => {
-                tempdir.close().expect(&format!(
-                    "failed to remove temporary directory: {}",
-                    rootdir.display()
-                ));
+                tempdir.close().unwrap_or_else(|_| {
+                    panic!(
+                        "failed to remove temporary directory: {}",
+                        rootdir.display()
+                    )
+                });
                 eprintln!("waitpid failed: {}", e);
                 process::exit(1);
             }
@@ -205,8 +206,8 @@ fn main() {
         TempDir::new("nix").expect("failed to create temporary directory for mount point");
     let rootdir = PathBuf::from(tempdir.path());
 
-    let nixdir =
-        fs::canonicalize(&args[1]).expect(&format!("failed to resolve nix directory {}", &args[1]));
+    let nixdir = fs::canonicalize(&args[1])
+        .unwrap_or_else(|_| panic!("failed to resolve nix directory {}", &args[1]));
 
     match fork() {
         Ok(ForkResult::Parent { child, .. }) => wait_for_child(child, tempdir, &rootdir),
