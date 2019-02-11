@@ -12,6 +12,32 @@ is not available for unprivileged users in some Linux distributions such as
 Red Hat Linux, CentOS and Archlinux when using the stock kernel. It should be available
 in Ubuntu and Debian.
 
+## Check if your kernel supports usernamespaces for unprivileged users
+
+```console
+$ unshare --user --pid echo YES
+YES
+```
+
+The output should be <code>YES</code>. 
+If the command is absent, an alternative is to check the kernel compile options:
+
+```console
+$ zgrep CONFIG_USER_NS /proc/config.gz
+CONFIG_USER_NS=y
+```
+
+On some systems, like Debian or Ubuntu, the kernel configuration is in a different place, so instead use:
+
+```console
+$ grep CONFIG_USER_NS /boot/config-$(uname -r)
+CONFIG_USER_NS=y
+```
+
+On debian-based system this feature might be disabled by default.
+However they provide a [sysctl switch](https://superuser.com/a/1122977)
+to enable it at runtime.
+
 ## Download static binaries
 
 Checkout the [releases tab](https://github.com/nix-community/nix-user-chroot/releases)
