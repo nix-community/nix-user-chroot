@@ -1,4 +1,5 @@
 # nix-user-chroot
+[![Build Status](https://travis-ci.com/nix-community/nix-user-chroot.svg?branch=master)](https://travis-ci.com/nix-community/nix-user-chroot)
 
 Rust rewrite of 
 [lethalman's version](https://github.com/lethalman/nix-user-chroot)
