@@ -1,0 +1,9 @@
+[package]
+name = "nix-user-chroot"
+version = "0.1.0"
+authors = ["Jörg Thalheim <joerg@thalheim.io>"]
+edition = "2018"
+
+[dependencies]
+nix = "0.13.*"
+tempdir = "0.*"
