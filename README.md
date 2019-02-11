@@ -40,7 +40,7 @@ to enable it at runtime.
 
 ## Download static binaries
 
-Checkout the [releases tab](https://github.com/nix-community/nix-user-chroot/releases)
+Checkout the [latest release](https://github.com/nix-community/nix-user-chroot/releases/latest)
 and download the binary matching your architecture.
 
 ## Build from source
