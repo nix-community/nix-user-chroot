@@ -1,25 +1,25 @@
 # nix-user-chroot
 [![Build Status](https://travis-ci.com/nix-community/nix-user-chroot.svg?branch=master)](https://travis-ci.com/nix-community/nix-user-chroot)
 
-Rust rewrite of 
+Rust rewrite of
 [lethalman's version](https://github.com/lethalman/nix-user-chroot)
 to clarify the license situation.
 This forks also makes it possible to use the nix sandbox!
 
 Run and install nix as user without root permissions. Nix-user-chroot requires
-username spaces to perform its task (available since linux 3.8). Note that this
+user namespaces to perform its task (available since linux 3.8). Note that this
 is not available for unprivileged users in some Linux distributions such as
-Red Hat Linux, CentOS and Archlinux when using the stock kernel. It should be available
-in Ubuntu and Debian.
+Red Hat Linux, CentOS and Archlinux when using the stock kernel. It should be
+available in Ubuntu and Debian.
 
-## Check if your kernel supports usernamespaces for unprivileged users
+## Check if your kernel supports user namespaces for unprivileged users
 
 ```console
 $ unshare --user --pid echo YES
 YES
 ```
 
-The output should be <code>YES</code>. 
+The output should be <code>YES</code>.
 If the command is absent, an alternative is to check the kernel compile options:
 
 ```console
@@ -37,6 +37,16 @@ CONFIG_USER_NS=y
 On debian-based system this feature might be disabled by default.
 However they provide a [sysctl switch](https://superuser.com/a/1122977)
 to enable it at runtime.
+
+On RedHat / CentOS 7.4 user namespaces are disabled by default, but can be
+enabled by:
+
+1. Adding `namespace.unpriv_enable=1` to the kernel boot parameters via `grubby`
+2. `echo "user.max_user_namespaces=15076" >> /etc/sysctl.conf` to increase the
+number of allowed namespaces above the default 0.
+
+For more details, see the
+[RedHat Documentation](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux_atomic_host/7/html-single/getting_started_with_containers/index#user_namespaces_options)
 
 ## Download static binaries
 
@@ -111,6 +121,5 @@ This assumes we just install to `$XDG_DATA_HOME` or `$HOME/.data/nix` by default
 
 ### Add a setuid version
 
-Since not all linux distributions allow username spaces by default,
-we will need packages for those that install setuid binaries to 
-achieve the same.
+Since not all linux distributions allow user namespaces by default, we will need
+packages for those that install setuid binaries to achieve the same.
