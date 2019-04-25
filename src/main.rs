@@ -148,7 +148,7 @@ fn run_chroot(nixdir: &Path, rootdir: &Path, cmd: &str, args: &[String]) {
         .env("NIX_CONF_DIR", "/nix/etc/nix")
         .exec();
 
-    eprintln!("failed to execute {}: {}", &args[2], err);
+    eprintln!("failed to execute {}: {}", &cmd, err);
     process::exit(1);
 }
 
