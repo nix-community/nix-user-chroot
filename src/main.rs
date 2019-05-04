@@ -8,6 +8,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
+use std::os::unix::fs::symlink;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -16,6 +17,57 @@ use std::string::String;
 use tempdir::TempDir;
 
 const NONE: Option<&'static [u8]> = None;
+
+fn bind_mount(source: &Path, dest: &Path) {
+    if let Err(e) = mount(
+        Some(source),
+        dest,
+        Some("none"),
+        MsFlags::MS_BIND | MsFlags::MS_REC,
+        NONE,
+    ) {
+        eprintln!(
+            "failed to bind mount {} to {}: {}",
+            source.display(),
+            dest.display(),
+            e
+        );
+    }
+}
+
+fn bind_mount_directory(entry: &fs::DirEntry) {
+    let mountpoint = PathBuf::from("/").join(entry.file_name());
+    if let Err(e) = fs::create_dir(&mountpoint) {
+        if e.kind() != io::ErrorKind::AlreadyExists {
+            let e2: io::Result<()> = Err(e);
+            e2.unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
+        }
+    }
+
+    bind_mount(&entry.path(), &mountpoint)
+}
+
+fn bind_mount_file(entry: &fs::DirEntry) {
+    let mountpoint = PathBuf::from("/").join(entry.file_name());
+    fs::File::create(&mountpoint)
+        .unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
+
+    bind_mount(&entry.path(), &mountpoint)
+}
+
+fn mirror_symlink(entry: &fs::DirEntry) {
+    let path = entry.path();
+    let target = fs::read_link(&path)
+        .unwrap_or_else(|_| panic!("failed to resolve symlink {}", &path.display()));
+    let link_path = PathBuf::from("/").join(entry.file_name());
+    symlink(&target, &link_path).unwrap_or_else(|_| {
+        panic!(
+            "failed to create symlink {} -> {}",
+            &link_path.display(),
+            &target.display()
+        )
+    });
+}
 
 fn bind_mount_direntry(entry: io::Result<fs::DirEntry>) {
     let entry = entry.expect("error while listing from /nix directory");
@@ -27,31 +79,12 @@ fn bind_mount_direntry(entry: io::Result<fs::DirEntry>) {
     let stat = entry
         .metadata()
         .unwrap_or_else(|_| panic!("cannot get stat of {}", path.display()));
-    if !stat.is_dir() {
-        return;
-    }
-
-    let mountpoint = PathBuf::from("/").join(entry.file_name());
-    if let Err(e) = fs::create_dir(&mountpoint) {
-        if e.kind() != io::ErrorKind::AlreadyExists {
-            let e2: io::Result<()> = Err(e);
-            e2.unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
-        }
-    }
-
-    if let Err(e) = mount(
-        Some(&path),
-        &mountpoint,
-        Some("none"),
-        MsFlags::MS_BIND | MsFlags::MS_REC,
-        NONE,
-    ) {
-        eprintln!(
-            "failed to bind mount {} to {}: {}",
-            path.display(),
-            mountpoint.display(),
-            e
-        );
+    if stat.is_dir() {
+        bind_mount_directory(&entry);
+    } else if stat.is_file() {
+        bind_mount_file(&entry);
+    } else if stat.file_type().is_symlink() {
+        mirror_symlink(&entry);
     }
 }
 
@@ -81,8 +114,7 @@ fn run_chroot(nixdir: &Path, rootdir: &Path, cmd: &str, args: &[String]) {
         Some("none"),
         MsFlags::MS_PRIVATE | MsFlags::MS_REC,
         NONE,
-    )
-    .expect("failed to re-mount our chroot as private mount");
+    ).expect("failed to re-mount our chroot as private mount");
 
     // create the mount point for the old root
     // The old root cannot be unmounted/removed after pivot_root, the only way to
