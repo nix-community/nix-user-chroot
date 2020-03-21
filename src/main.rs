@@ -14,7 +14,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process;
 use std::string::String;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 const NONE: Option<&'static [u8]> = None;
 
@@ -235,7 +235,7 @@ fn main() {
         process::exit(1);
     }
     let tempdir =
-        TempDir::new("nix").expect("failed to create temporary directory for mount point");
+        TempDir::new().expect("failed to create temporary directory for mount point");
     let rootdir = PathBuf::from(tempdir.path());
 
     let nixdir = fs::canonicalize(&args[1])
