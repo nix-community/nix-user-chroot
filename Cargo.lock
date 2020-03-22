@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "nix-user-chroot"
-version = "0.1.0"
+version = "1.0.3"
 dependencies = [
  "nix 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
