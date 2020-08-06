@@ -74,7 +74,7 @@ This will download and extract latest nix binary tarball from the chroot:
 
 ```console
 $ mkdir -m 0755 ~/.nix
-$ nix-user-chroot ~/.nix bash -c "curl https://nixos.org/nix/install | bash"
+$ nix-user-chroot ~/.nix bash -c "curl -L https://nixos.org/nix/install | bash"
 ```
 
 The installation described here will not work on NixOS this way, because you
@@ -108,7 +108,7 @@ Instead of
 
 ```console
 $ mkdir -m 0755 ~/.nix
-$ nix-user-chroot ~/.nix bash -c "curl https://nixos.org/nix/install | bash"
+$ nix-user-chroot ~/.nix bash -c "curl -L https://nixos.org/nix/install | bash"
 ```
 
 it should just be:
