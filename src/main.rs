@@ -1,4 +1,3 @@
-use nix::mount::{mount, MsFlags};
 use nix::sched::{unshare, CloneFlags};
 use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
@@ -6,9 +5,7 @@ use nix::unistd;
 use nix::unistd::{fork, ForkResult};
 use std::env;
 use std::fs;
-use std::io;
 use std::io::prelude::*;
-use std::os::unix::fs::symlink;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -16,81 +13,9 @@ use std::process;
 use std::string::String;
 use tempfile::TempDir;
 
-const NONE: Option<&'static [u8]> = None;
-
-fn bind_mount(source: &Path, dest: &Path) {
-    if let Err(e) = mount(
-        Some(source),
-        dest,
-        Some("none"),
-        MsFlags::MS_BIND | MsFlags::MS_REC,
-        NONE,
-    ) {
-        eprintln!(
-            "failed to bind mount {} to {}: {}",
-            source.display(),
-            dest.display(),
-            e
-        );
-    }
-}
-
-fn bind_mount_directory(entry: &fs::DirEntry) {
-    let mountpoint = PathBuf::from("/").join(entry.file_name());
-    if let Err(e) = fs::create_dir(&mountpoint) {
-        if e.kind() != io::ErrorKind::AlreadyExists {
-            let e2: io::Result<()> = Err(e);
-            e2.unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
-        }
-    }
-
-    bind_mount(&entry.path(), &mountpoint)
-}
-
-fn bind_mount_file(entry: &fs::DirEntry) {
-    let mountpoint = PathBuf::from("/").join(entry.file_name());
-    fs::File::create(&mountpoint)
-        .unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
-
-    bind_mount(&entry.path(), &mountpoint)
-}
-
-fn mirror_symlink(entry: &fs::DirEntry) {
-    let path = entry.path();
-    let target = fs::read_link(&path)
-        .unwrap_or_else(|_| panic!("failed to resolve symlink {}", &path.display()));
-    let link_path = PathBuf::from("/").join(entry.file_name());
-    symlink(&target, &link_path).unwrap_or_else(|_| {
-        panic!(
-            "failed to create symlink {} -> {}",
-            &link_path.display(),
-            &target.display()
-        )
-    });
-}
-
-fn bind_mount_direntry(entry: io::Result<fs::DirEntry>) {
-    let entry = entry.expect("error while listing from /nix directory");
-    // do not bind mount an existing nix installation
-    if entry.file_name() == PathBuf::from("nix") {
-        return;
-    }
-    let path = entry.path();
-    let stat = entry
-        .metadata()
-        .unwrap_or_else(|_| panic!("cannot get stat of {}", path.display()));
-    if stat.is_dir() {
-        bind_mount_directory(&entry);
-    } else if stat.is_file() {
-        bind_mount_file(&entry);
-    } else if stat.file_type().is_symlink() {
-        mirror_symlink(&entry);
-    }
-}
+use rooter::Rooter;
 
 fn run_chroot(nixdir: &Path, rootdir: &Path, cmd: &str, args: &[String]) {
-    let cwd = env::current_dir().expect("cannot get current working directory");
-
     let uid = unistd::getuid();
     let gid = unistd::getgid();
 
@@ -99,59 +24,23 @@ fn run_chroot(nixdir: &Path, rootdir: &Path, cmd: &str, args: &[String]) {
     // prepare pivot_root call:
     // rootdir must be a mount point
 
-    mount(
-        Some(rootdir),
-        rootdir,
-        Some("none"),
-        MsFlags::MS_BIND | MsFlags::MS_REC,
-        NONE,
-    )
-    .expect("failed to re-bind mount / to our new chroot");
-
-    mount(
-        Some(rootdir),
-        rootdir,
-        Some("none"),
-        MsFlags::MS_PRIVATE | MsFlags::MS_REC,
-        NONE,
-    ).expect("failed to re-mount our chroot as private mount");
-
-    // create the mount point for the old root
-    // The old root cannot be unmounted/removed after pivot_root, the only way to
-    // keep / clean is to hide the directory with another mountpoint. Therefore
-    // we pivot the old root to /nix. This is somewhat confusing, though.
-    let nix_mountpoint = rootdir.join("nix");
-    fs::create_dir(&nix_mountpoint)
-        .unwrap_or_else(|_| panic!("failed to create {}/nix", &nix_mountpoint.display()));
-
-    unistd::pivot_root(rootdir, &nix_mountpoint).unwrap_or_else(|_| {
-        panic!(
-            "pivot_root({},{})",
-            rootdir.display(),
-            nix_mountpoint.display()
-        )
-    });
-
-    env::set_current_dir("/").expect("cannot change directory to /");
+    let mut rooter = Rooter::new(rootdir.to_owned());
 
     // bind mount all / stuff into rootdir
     // the orginal content of / now available under /nix
-    let nix_root = PathBuf::from("/nix");
-    let dir = fs::read_dir(&nix_root).expect("failed to list /nix directory");
+    let nix_root = PathBuf::from("/");
+    let dir = fs::read_dir(&nix_root).expect("failed to list / directory");
     for entry in dir {
-        bind_mount_direntry(entry);
+        let entry = entry.expect("failed to read directory entry");
+        let path = Path::new("/").join(entry.file_name());
+        rooter.bind_self(path).expect("failed to bind host directory");
     }
-    // mount the store and hide the old root
-    // we fetch nixdir under the old root
-    let nix_store = nix_root.join(nixdir);
-    mount(
-        Some(&nix_store),
-        "/nix",
-        Some("none"),
-        MsFlags::MS_BIND | MsFlags::MS_REC,
-        NONE,
-    )
-    .unwrap_or_else(|_| panic!("failed to bind mount {} to /nix", nix_store.display()));
+
+    rooter
+        .bind_dir(nixdir, "/nix").expect("failed to bind /nix")
+        .preserve_cwd(true);
+
+    rooter.chroot().expect("failed to change root directory");
 
     // fixes issue #1 where writing to /proc/self/gid_map fails
     // see user_namespaces(7) for more documentation
@@ -170,10 +59,6 @@ fn run_chroot(nixdir: &Path, rootdir: &Path, cmd: &str, args: &[String]) {
     gid_map
         .write_all(format!("{} {} 1", gid, gid).as_bytes())
         .expect("failed to write new gid mapping to /proc/self/gid_map");
-
-    // restore cwd
-    env::set_current_dir(&cwd)
-        .unwrap_or_else(|_| panic!("cannot restore working directory {}", cwd.display()));
 
     let err = process::Command::new(cmd)
         .args(args)
