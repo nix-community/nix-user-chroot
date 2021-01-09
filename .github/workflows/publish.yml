@@ -15,8 +15,6 @@ jobs:
           - i686-unknown-linux-musl
           - armv7-unknown-linux-musleabihf
           - aarch64-unknown-linux-musl
-        rust:
-          - 1.49.0
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -24,7 +22,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
           target: ${{ matrix.target }}
           override: true
       - name: install aarch64-compiler cross-compiler
