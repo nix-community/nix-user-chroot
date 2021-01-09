@@ -30,6 +30,24 @@ jobs:
       - name: Ready cache
         if: matrix.os == 'ubuntu-latest'
         run: sudo chown -R $(whoami):$(id -ng) ~/.cargo/
+      - name: install aarch64-compiler cross-compiler
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          sudo apt install gcc-aarch64-linux-gnu
+          mkdir .cargo
+          cat >.cargo/config <<EOF
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+      - name: install armv7-compiler cross-compiler
+        if: matrix.target == 'armv7-unknown-linux-musleabihf'
+        run: |
+          sudo apt install gcc-arm-linux-gnueabihf
+          mkdir .cargo
+          cat >.cargo/config <<EOF
+          [target.armv7-unknown-linux-musleabihf]
+          linker = "arm-linux-gnueabihf-gcc"
+          EOF
       - name: Cache cargo
         uses: actions/cache@v2.1.3
         id: cache
@@ -38,13 +56,13 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
       - name: Test
         uses: actions-rs/cargo@v1
-        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'i686-unknown-linux-musl'
+        if: matrix.target != 'armv7-unknown-linux-musleabihf' && matrix.target != 'aarch64-unknown-linux-musl'
         with:
           command: test
           args: --target ${{ matrix.target }}
       - name: Build
         uses: actions-rs/cargo@v1
-        if: matrix.target != 'x86_64-unknown-linux-gnu' && matrix.target != 'x86_64-unknown-linux-musl' && matrix.target != 'i686-unknown-linux-musl'
+        if: matrix.target == 'armv7-unknown-linux-musleabihf' || matrix.target == 'aarch64-unknown-linux-musl'
         with:
           command: build
           args: --target ${{ matrix.target }}
