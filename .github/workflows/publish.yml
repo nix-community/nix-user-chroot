@@ -39,7 +39,7 @@ jobs:
           sudo apt install gcc-$TARGET_PREFIX
           mkdir .cargo
           cat >.cargo/config <<EOF
-          [target.${matrix.target}]
+          [target.${{ matrix.target }}]
           linker = "${TARGET_PREFIX}-gcc"
           EOF
           echo STRIP_PREFIX="${TARGET_PREFIX}-" >> $GITHUB_ENV
