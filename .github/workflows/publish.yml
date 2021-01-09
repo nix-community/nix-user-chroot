@@ -48,6 +48,7 @@ jobs:
       - name: Package
         run: |
           version=$(basename ${{ github.ref }})
+          strip target/${{ matrix.target }}/release/nix-user-chroot
           install -D target/${{ matrix.target }}/release/nix-user-chroot dist/nix-user-chroot-bin-$version-${{ matrix.target }}
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
