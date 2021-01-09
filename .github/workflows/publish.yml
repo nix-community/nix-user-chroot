@@ -34,7 +34,6 @@ jobs:
         run: |
           echo TARGET_PREFIX=arm-linux-gnueabihf >> $GITHUB_ENV
       - name: Setup compiler
-        if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
           [[ -z $TARGET_PREFIX ]] && exit 0
           sudo apt install gcc-$TARGET_PREFIX
