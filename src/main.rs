@@ -35,154 +35,140 @@ fn bind_mount(source: &Path, dest: &Path) {
     }
 }
 
-fn bind_mount_directory(entry: &fs::DirEntry) {
-    let mountpoint = PathBuf::from("/").join(entry.file_name());
-    if let Err(e) = fs::create_dir(&mountpoint) {
-        if e.kind() != io::ErrorKind::AlreadyExists {
-            let e2: io::Result<()> = Err(e);
-            e2.unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
+pub struct RunChroot<'a> {
+    rootdir: &'a Path,
+}
+
+impl<'a> RunChroot<'a> {
+    fn new(rootdir: &'a Path) -> Self {
+        Self {
+            rootdir
         }
     }
 
-    bind_mount(&entry.path(), &mountpoint)
-}
+    fn bind_mount_directory(&self, entry: &fs::DirEntry) {
+        let mountpoint = self.rootdir.join(entry.file_name());
+        if let Err(e) = fs::create_dir(&mountpoint) {
+            if e.kind() != io::ErrorKind::AlreadyExists {
+                let e2: io::Result<()> = Err(e);
+                e2.unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
+            }
+        }
 
-fn bind_mount_file(entry: &fs::DirEntry) {
-    let mountpoint = PathBuf::from("/").join(entry.file_name());
-    fs::File::create(&mountpoint)
-        .unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
+        bind_mount(&entry.path(), &mountpoint)
+    }
 
-    bind_mount(&entry.path(), &mountpoint)
-}
+    fn bind_mount_file(&self, entry: &fs::DirEntry) {
+        let mountpoint = self.rootdir.join(entry.file_name());
+        fs::File::create(&mountpoint)
+            .unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
 
-fn mirror_symlink(entry: &fs::DirEntry) {
-    let path = entry.path();
-    let target = fs::read_link(&path)
-        .unwrap_or_else(|_| panic!("failed to resolve symlink {}", &path.display()));
-    let link_path = PathBuf::from("/").join(entry.file_name());
-    symlink(&target, &link_path).unwrap_or_else(|_| {
-        panic!(
-            "failed to create symlink {} -> {}",
-            &link_path.display(),
-            &target.display()
+        bind_mount(&entry.path(), &mountpoint)
+    }
+
+    fn mirror_symlink(&self, entry: &fs::DirEntry) {
+        let path = entry.path();
+        let target = fs::read_link(&path)
+            .unwrap_or_else(|_| panic!("failed to resolve symlink {}", &path.display()));
+        let link_path = self.rootdir.join(entry.file_name());
+        symlink(&target, &link_path).unwrap_or_else(|_| {
+            panic!(
+                "failed to create symlink {} -> {}",
+                &link_path.display(),
+                &target.display()
+                )
+        });
+    }
+
+    fn bind_mount_direntry(&self, entry: io::Result<fs::DirEntry>) {
+        let entry = entry.expect("error while listing from /nix directory");
+        // do not bind mount an existing nix installation
+        if entry.file_name() == PathBuf::from("nix") {
+            return;
+        }
+        let path = entry.path();
+        let stat = entry
+            .metadata()
+            .unwrap_or_else(|_| panic!("cannot get stat of {}", path.display()));
+        if stat.is_dir() {
+            self.bind_mount_directory(&entry);
+        } else if stat.is_file() {
+            self.bind_mount_file(&entry);
+        } else if stat.file_type().is_symlink() {
+            self.mirror_symlink(&entry);
+        }
+    }
+
+    fn run_chroot(&self, nixdir: &Path, cmd: &str, args: &[String]) {
+        let cwd = env::current_dir().expect("cannot get current working directory");
+
+        let uid = unistd::getuid();
+        let gid = unistd::getgid();
+
+        unshare(CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWUSER).expect("unshare failed");
+
+        // bind mount all / stuff into rootdir
+        let nix_root = PathBuf::from("/");
+        let dir = fs::read_dir(&nix_root).expect("failed to list /nix directory");
+        for entry in dir {
+            self.bind_mount_direntry(entry);
+        }
+
+        // mount the store
+        let nix_mount = self.rootdir.join("nix");
+        fs::create_dir(&nix_mount)
+            .unwrap_or_else(|_| panic!("failed to create {}", &nix_mount.display()));
+        mount(
+            Some(nixdir),
+            &nix_mount,
+            Some("none"),
+            MsFlags::MS_BIND | MsFlags::MS_REC,
+            NONE,
         )
-    });
+        .unwrap_or_else(|_| panic!("failed to bind mount {} to /nix", nixdir.display()));
+
+        // chroot
+        unistd::chroot(self.rootdir).unwrap_or_else(|_| {
+            panic!(
+                "chroot({})",
+                self.rootdir.display(),
+            )
+        });
+
+        env::set_current_dir("/").expect("cannot change directory to /");
+
+        // fixes issue #1 where writing to /proc/self/gid_map fails
+        // see user_namespaces(7) for more documentation
+        if let Ok(mut file) = fs::File::create("/proc/self/setgroups") {
+            let _ = file.write_all(b"deny");
+        }
+
+        let mut uid_map =
+            fs::File::create("/proc/self/uid_map").expect("failed to open /proc/self/uid_map");
+        uid_map
+            .write_all(format!("{} {} 1", uid, uid).as_bytes())
+            .expect("failed to write new uid mapping to /proc/self/uid_map");
+
+        let mut gid_map =
+            fs::File::create("/proc/self/gid_map").expect("failed to open /proc/self/gid_map");
+        gid_map
+            .write_all(format!("{} {} 1", gid, gid).as_bytes())
+            .expect("failed to write new gid mapping to /proc/self/gid_map");
+
+        // restore cwd
+        env::set_current_dir(&cwd)
+            .unwrap_or_else(|_| panic!("cannot restore working directory {}", cwd.display()));
+
+        let err = process::Command::new(cmd)
+            .args(args)
+            .env("NIX_CONF_DIR", "/nix/etc/nix")
+            .exec();
+
+        eprintln!("failed to execute {}: {}", &cmd, err);
+        process::exit(1);
+    }
 }
 
-fn bind_mount_direntry(entry: io::Result<fs::DirEntry>) {
-    let entry = entry.expect("error while listing from /nix directory");
-    // do not bind mount an existing nix installation
-    if entry.file_name() == PathBuf::from("nix") {
-        return;
-    }
-    let path = entry.path();
-    let stat = entry
-        .metadata()
-        .unwrap_or_else(|_| panic!("cannot get stat of {}", path.display()));
-    if stat.is_dir() {
-        bind_mount_directory(&entry);
-    } else if stat.is_file() {
-        bind_mount_file(&entry);
-    } else if stat.file_type().is_symlink() {
-        mirror_symlink(&entry);
-    }
-}
-
-fn run_chroot(nixdir: &Path, rootdir: &Path, cmd: &str, args: &[String]) {
-    let cwd = env::current_dir().expect("cannot get current working directory");
-
-    let uid = unistd::getuid();
-    let gid = unistd::getgid();
-
-    unshare(CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWUSER).expect("unshare failed");
-
-    // prepare pivot_root call:
-    // rootdir must be a mount point
-
-    mount(
-        Some(rootdir),
-        rootdir,
-        Some("none"),
-        MsFlags::MS_BIND | MsFlags::MS_REC,
-        NONE,
-    )
-    .expect("failed to re-bind mount / to our new chroot");
-
-    mount(
-        Some(rootdir),
-        rootdir,
-        Some("none"),
-        MsFlags::MS_PRIVATE | MsFlags::MS_REC,
-        NONE,
-    ).expect("failed to re-mount our chroot as private mount");
-
-    // create the mount point for the old root
-    // The old root cannot be unmounted/removed after pivot_root, the only way to
-    // keep / clean is to hide the directory with another mountpoint. Therefore
-    // we pivot the old root to /nix. This is somewhat confusing, though.
-    let nix_mountpoint = rootdir.join("nix");
-    fs::create_dir(&nix_mountpoint)
-        .unwrap_or_else(|_| panic!("failed to create {}/nix", &nix_mountpoint.display()));
-
-    unistd::pivot_root(rootdir, &nix_mountpoint).unwrap_or_else(|_| {
-        panic!(
-            "pivot_root({},{})",
-            rootdir.display(),
-            nix_mountpoint.display()
-        )
-    });
-
-    env::set_current_dir("/").expect("cannot change directory to /");
-
-    // bind mount all / stuff into rootdir
-    // the orginal content of / now available under /nix
-    let nix_root = PathBuf::from("/nix");
-    let dir = fs::read_dir(&nix_root).expect("failed to list /nix directory");
-    for entry in dir {
-        bind_mount_direntry(entry);
-    }
-    // mount the store and hide the old root
-    // we fetch nixdir under the old root
-    let nix_store = nix_root.join(nixdir);
-    mount(
-        Some(&nix_store),
-        "/nix",
-        Some("none"),
-        MsFlags::MS_BIND | MsFlags::MS_REC,
-        NONE,
-    )
-    .unwrap_or_else(|_| panic!("failed to bind mount {} to /nix", nix_store.display()));
-
-    // fixes issue #1 where writing to /proc/self/gid_map fails
-    // see user_namespaces(7) for more documentation
-    if let Ok(mut file) = fs::File::create("/proc/self/setgroups") {
-        let _ = file.write_all(b"deny");
-    }
-
-    let mut uid_map =
-        fs::File::create("/proc/self/uid_map").expect("failed to open /proc/self/uid_map");
-    uid_map
-        .write_all(format!("{} {} 1", uid, uid).as_bytes())
-        .expect("failed to write new uid mapping to /proc/self/uid_map");
-
-    let mut gid_map =
-        fs::File::create("/proc/self/gid_map").expect("failed to open /proc/self/gid_map");
-    gid_map
-        .write_all(format!("{} {} 1", gid, gid).as_bytes())
-        .expect("failed to write new gid mapping to /proc/self/gid_map");
-
-    // restore cwd
-    env::set_current_dir(&cwd)
-        .unwrap_or_else(|_| panic!("cannot restore working directory {}", cwd.display()));
-
-    let err = process::Command::new(cmd)
-        .args(args)
-        .env("NIX_CONF_DIR", "/nix/etc/nix")
-        .exec();
-
-    eprintln!("failed to execute {}: {}", &cmd, err);
-    process::exit(1);
-}
 
 fn wait_for_child(child_pid: unistd::Pid, tempdir: TempDir, rootdir: &Path) {
     loop {
@@ -243,7 +229,7 @@ fn main() {
 
     match fork() {
         Ok(ForkResult::Parent { child, .. }) => wait_for_child(child, tempdir, &rootdir),
-        Ok(ForkResult::Child) => run_chroot(&nixdir, &rootdir, &args[2], &args[3..]),
+        Ok(ForkResult::Child) => RunChroot::new(&rootdir).run_chroot(&nixdir, &args[2], &args[3..]),
         Err(e) => {
             eprintln!("fork failed: {}", e);
         }
