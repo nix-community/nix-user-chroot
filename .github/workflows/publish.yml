@@ -15,8 +15,6 @@ jobs:
           - i686-unknown-linux-musl
           - armv7-unknown-linux-musleabihf
           - aarch64-unknown-linux-musl
-        rust:
-          - 1.49.0
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -24,7 +22,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
           target: ${{ matrix.target }}
           override: true
       - name: install aarch64-compiler cross-compiler
@@ -62,6 +60,14 @@ jobs:
       # publish-crates does not like this
       - name: Cleanup dist
         run: rm -r dist
+  publish:
+    needs: build
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+            toolchain: stable
+            override: true
       - uses: katyo/publish-crates@v1
         with:
           registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}

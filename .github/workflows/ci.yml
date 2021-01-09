@@ -16,7 +16,6 @@ jobs:
           - i686-unknown-linux-musl
           - armv7-unknown-linux-musleabihf
           - aarch64-unknown-linux-musl
-        rust: [1.49.0]
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -24,7 +23,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
           target: ${{ matrix.target }}
           override: true
       - name: Ready cache
@@ -78,9 +77,6 @@ jobs:
   lint:
     name: Linting (fmt + clippy)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust: [1.46.0]
     steps:
       - name: Install rust
         uses: actions-rs/toolchain@v1
