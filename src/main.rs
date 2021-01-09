@@ -219,7 +219,7 @@ fn main() {
     let nixdir = fs::canonicalize(&args[1])
         .unwrap_or_else(|_| panic!("failed to resolve nix directory {}", &args[1]));
 
-    match fork() {
+    match unsafe { fork() } {
         Ok(ForkResult::Parent { child, .. }) => wait_for_child(child, tempdir, &rootdir),
         Ok(ForkResult::Child) => RunChroot::new(&rootdir).run_chroot(&nixdir, &args[2], &args[3..]),
         Err(e) => {
