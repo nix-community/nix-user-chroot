@@ -25,30 +25,31 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
-      - name: install aarch64-compiler cross-compiler
+      - name: set aarch64 gcc-prefix
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
-          sudo apt install gcc-aarch64-linux-gnu
-          mkdir .cargo
-          cat >.cargo/config <<EOF
-          [target.aarch64-unknown-linux-musl]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
-      - name: install armv7-compiler cross-compiler
+          echo TARGET_PREFIX=aarch64-linux-gnu >> $GITHUB_ENV
+      - name: set armv7 gcc-prefix
         if: matrix.target == 'armv7-unknown-linux-musleabihf'
         run: |
-          sudo apt install gcc-arm-linux-gnueabihf
+          echo TARGET_PREFIX=arm-linux-gnueabihf >> $GITHUB_ENV
+      - name: Setup compiler
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          [[ -z $TARGET_PREFIX ]] && exit 0
+          sudo apt install gcc-$TARGET_PREFIX
           mkdir .cargo
           cat >.cargo/config <<EOF
-          [target.armv7-unknown-linux-musleabihf]
-          linker = "arm-linux-gnueabihf-gcc"
+          [target.${matrix.target}]
+          linker = "${TARGET_PREFIX}-gcc"
           EOF
+          echo STRIP_PREFIX="${TARGET_PREFIX}-" >> $GITHUB_ENV
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} --locked
       - name: Package
         run: |
           version=$(basename ${{ github.ref }})
-          strip target/${{ matrix.target }}/release/nix-user-chroot
+          ${STRIP_PREFIX}strip target/${{ matrix.target }}/release/nix-user-chroot
           install -D target/${{ matrix.target }}/release/nix-user-chroot dist/nix-user-chroot-bin-$version-${{ matrix.target }}
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
