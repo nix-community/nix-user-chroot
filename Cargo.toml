@@ -2,7 +2,7 @@
 name = "nix-user-chroot"
 description = "Install & Run nix without root permissions"
 license = "MIT"
-version = "1.1.0"
+version = "1.1.1"
 authors = ["Jörg Thalheim <joerg@thalheim.io>"]
 edition = "2018"
 
