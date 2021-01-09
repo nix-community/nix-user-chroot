@@ -53,6 +53,12 @@ For more details, see the
 Checkout the [latest release](https://github.com/nix-community/nix-user-chroot/releases/latest)
 and download the binary matching your architecture.
 
+## Install with cargo
+
+``` console
+$ cargo install nix-user-chroot
+```
+
 ## Build from source
 
 ```console
