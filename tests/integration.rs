@@ -1,18 +1,18 @@
 use std::env;
-use std::path::PathBuf;
 use std::process::Command;
 use tempfile::TempDir;
 
+const TARGET: &str = env!("TARGET");
+
 #[test]
 fn run_nix_install() {
-    let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let cmd_path = root.join("target/debug/nix-user-chroot");
-    assert!(cmd_path.exists());
-
     let tempdir = TempDir::new().unwrap();
 
-    let result = Command::new(cmd_path)
+    let result = Command::new("cargo")
         .args(&[
+            "run",
+            "--target",
+            TARGET,
             tempdir.path().to_str().unwrap(),
             "bash",
             "-c",

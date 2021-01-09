@@ -41,9 +41,7 @@ pub struct RunChroot<'a> {
 
 impl<'a> RunChroot<'a> {
     fn new(rootdir: &'a Path) -> Self {
-        Self {
-            rootdir
-        }
+        Self { rootdir }
     }
 
     fn bind_mount_directory(&self, entry: &fs::DirEntry) {
@@ -76,7 +74,7 @@ impl<'a> RunChroot<'a> {
                 "failed to create symlink {} -> {}",
                 &link_path.display(),
                 &target.display()
-                )
+            )
         });
     }
 
@@ -128,12 +126,8 @@ impl<'a> RunChroot<'a> {
         .unwrap_or_else(|_| panic!("failed to bind mount {} to /nix", nixdir.display()));
 
         // chroot
-        unistd::chroot(self.rootdir).unwrap_or_else(|_| {
-            panic!(
-                "chroot({})",
-                self.rootdir.display(),
-            )
-        });
+        unistd::chroot(self.rootdir)
+            .unwrap_or_else(|_| panic!("chroot({})", self.rootdir.display(),));
 
         env::set_current_dir("/").expect("cannot change directory to /");
 
@@ -168,7 +162,6 @@ impl<'a> RunChroot<'a> {
         process::exit(1);
     }
 }
-
 
 fn wait_for_child(child_pid: unistd::Pid, tempdir: TempDir, rootdir: &Path) {
     loop {
@@ -220,14 +213,13 @@ fn main() {
         eprintln!("Usage: {} <nixpath> <command>\n", args[0]);
         process::exit(1);
     }
-    let tempdir =
-        TempDir::new().expect("failed to create temporary directory for mount point");
+    let tempdir = TempDir::new().expect("failed to create temporary directory for mount point");
     let rootdir = PathBuf::from(tempdir.path());
 
     let nixdir = fs::canonicalize(&args[1])
         .unwrap_or_else(|_| panic!("failed to resolve nix directory {}", &args[1]));
 
-    match fork() {
+    match unsafe { fork() } {
         Ok(ForkResult::Parent { child, .. }) => wait_for_child(child, tempdir, &rootdir),
         Ok(ForkResult::Child) => RunChroot::new(&rootdir).run_chroot(&nixdir, &args[2], &args[3..]),
         Err(e) => {
