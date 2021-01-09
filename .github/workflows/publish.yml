@@ -27,19 +27,30 @@ jobs:
           toolchain: ${{ matrix.rust }}
           target: ${{ matrix.target }}
           override: true
+      - name: install aarch64-compiler cross-compiler
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          sudo apt install gcc-aarch64-linux-gnu
+          mkdir .cargo
+          cat >.cargo/config <<EOF
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+      - name: install armv7-compiler cross-compiler
+        if: matrix.target == 'armv7-unknown-linux-musleabihf'
+        run: |
+          sudo apt install gcc-arm-linux-gnueabihf
+          mkdir .cargo
+          cat >.cargo/config <<EOF
+          [target.armv7-unknown-linux-musleabihf]
+          linker = "arm-linux-gnueabihf-gcc"
+          EOF
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} --locked
       - name: Package
         run: |
           version=$(basename ${{ github.ref }})
-          name="cntr-$version"
-          depsname="cntr-src-$version"
-          install -D target/${{ matrix.target }}/release/cntr dist/cntr-bin-$version-${{ matrix.target }}
-          mkdir $depsname
-          git archive HEAD | tar -x -C $depsname
-          cargo vendor
-          mv vendor $depsname/
-          tar -czvf dist/$depsname.tar.gz $depsname
+          install -D target/${{ matrix.target }}/release/nix-user-chroot dist/nix-user-chroot-bin-$version-${{ matrix.target }}
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
