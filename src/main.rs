@@ -1,20 +1,20 @@
+use nix;
 use nix::mount::{mount, MsFlags};
 use nix::sched::{unshare, CloneFlags};
 use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd;
-use nix::unistd::{fork, ForkResult};
+use nix::unistd::{self, fork, ForkResult};
 use std::env;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
 use std::os::unix::fs::symlink;
 use std::os::unix::process::CommandExt;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::string::String;
-use tempfile::TempDir;
+
+mod mkdtemp;
 
 const NONE: Option<&'static [u8]> = None;
 
@@ -48,8 +48,7 @@ impl<'a> RunChroot<'a> {
         let mountpoint = self.rootdir.join(entry.file_name());
         if let Err(e) = fs::create_dir(&mountpoint) {
             if e.kind() != io::ErrorKind::AlreadyExists {
-                let e2: io::Result<()> = Err(e);
-                e2.unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
+                panic!("failed to create {}: {}", &mountpoint.display(), e);
             }
         }
 
@@ -59,7 +58,7 @@ impl<'a> RunChroot<'a> {
     fn bind_mount_file(&self, entry: &fs::DirEntry) {
         let mountpoint = self.rootdir.join(entry.file_name());
         fs::File::create(&mountpoint)
-            .unwrap_or_else(|_| panic!("failed to create {}", &mountpoint.display()));
+            .unwrap_or_else(|err| panic!("failed to create {}: {}", &mountpoint.display(), err));
 
         bind_mount(&entry.path(), &mountpoint)
     }
@@ -67,7 +66,7 @@ impl<'a> RunChroot<'a> {
     fn mirror_symlink(&self, entry: &fs::DirEntry) {
         let path = entry.path();
         let target = fs::read_link(&path)
-            .unwrap_or_else(|_| panic!("failed to resolve symlink {}", &path.display()));
+            .unwrap_or_else(|err| panic!("failed to resolve symlink {}: {}", &path.display(), err));
         let link_path = self.rootdir.join(entry.file_name());
         symlink(&target, &link_path).unwrap_or_else(|_| {
             panic!(
@@ -87,7 +86,7 @@ impl<'a> RunChroot<'a> {
         let path = entry.path();
         let stat = entry
             .metadata()
-            .unwrap_or_else(|_| panic!("cannot get stat of {}", path.display()));
+            .unwrap_or_else(|err| panic!("cannot get stat of {}: {}", path.display(), err));
         if stat.is_dir() {
             self.bind_mount_directory(&entry);
         } else if stat.is_file() {
@@ -115,7 +114,7 @@ impl<'a> RunChroot<'a> {
         // mount the store
         let nix_mount = self.rootdir.join("nix");
         fs::create_dir(&nix_mount)
-            .unwrap_or_else(|_| panic!("failed to create {}", &nix_mount.display()));
+            .unwrap_or_else(|err| panic!("failed to create {}: {}", &nix_mount.display(), err));
         mount(
             Some(nixdir),
             &nix_mount,
@@ -123,11 +122,11 @@ impl<'a> RunChroot<'a> {
             MsFlags::MS_BIND | MsFlags::MS_REC,
             NONE,
         )
-        .unwrap_or_else(|_| panic!("failed to bind mount {} to /nix", nixdir.display()));
+        .unwrap_or_else(|err| panic!("failed to bind mount {} to /nix: {}", nixdir.display(), err));
 
         // chroot
         unistd::chroot(self.rootdir)
-            .unwrap_or_else(|_| panic!("chroot({})", self.rootdir.display(),));
+            .unwrap_or_else(|err| panic!("chroot({}): {}", self.rootdir.display(), err));
 
         env::set_current_dir("/").expect("cannot change directory to /");
 
@@ -163,7 +162,8 @@ impl<'a> RunChroot<'a> {
     }
 }
 
-fn wait_for_child(child_pid: unistd::Pid, tempdir: TempDir, rootdir: &Path) {
+fn wait_for_child(rootdir: &Path, child_pid: unistd::Pid) -> ! {
+    let mut exit_status = 1;
     loop {
         match waitpid(child_pid, Some(WaitPidFlag::WUNTRACED)) {
             Ok(WaitStatus::Signaled(child, Signal::SIGSTOP, _)) => {
@@ -171,40 +171,29 @@ fn wait_for_child(child_pid: unistd::Pid, tempdir: TempDir, rootdir: &Path) {
                 let _ = kill(child, Signal::SIGCONT);
             }
             Ok(WaitStatus::Signaled(_, signal, _)) => {
-                kill(unistd::getpid(), signal)
-                    .unwrap_or_else(|_| panic!("failed to send {} signal to our self", signal));
+                kill(unistd::getpid(), signal).unwrap_or_else(|err| {
+                    panic!("failed to send {} signal to our self: {}", signal, err)
+                });
             }
             Ok(WaitStatus::Exited(_, status)) => {
-                tempdir.close().unwrap_or_else(|_| {
-                    panic!(
-                        "failed to remove temporary directory: {}",
-                        rootdir.display()
-                    )
-                });
-                process::exit(status);
+                exit_status = status;
+                break;
             }
             Ok(what) => {
-                tempdir.close().unwrap_or_else(|_| {
-                    panic!(
-                        "failed to remove temporary directory: {}",
-                        rootdir.display()
-                    )
-                });
                 eprintln!("unexpected wait event happend: {:?}", what);
-                process::exit(1);
+                break;
             }
             Err(e) => {
-                tempdir.close().unwrap_or_else(|_| {
-                    panic!(
-                        "failed to remove temporary directory: {}",
-                        rootdir.display()
-                    )
-                });
                 eprintln!("waitpid failed: {}", e);
-                process::exit(1);
+                break;
             }
         };
     }
+
+    fs::remove_dir_all(rootdir)
+        .unwrap_or_else(|err| panic!("cannot remove tempdir {}: {}", rootdir.display(), err));
+
+    process::exit(exit_status);
 }
 
 fn main() {
@@ -213,14 +202,15 @@ fn main() {
         eprintln!("Usage: {} <nixpath> <command>\n", args[0]);
         process::exit(1);
     }
-    let tempdir = TempDir::new().expect("failed to create temporary directory for mount point");
-    let rootdir = PathBuf::from(tempdir.path());
+
+    let rootdir = mkdtemp::mkdtemp("nix-chroot.XXXXXX")
+        .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
 
     let nixdir = fs::canonicalize(&args[1])
-        .unwrap_or_else(|_| panic!("failed to resolve nix directory {}", &args[1]));
+        .unwrap_or_else(|err| panic!("failed to resolve nix directory {}: {}", &args[1], err));
 
     match unsafe { fork() } {
-        Ok(ForkResult::Parent { child, .. }) => wait_for_child(child, tempdir, &rootdir),
+        Ok(ForkResult::Parent { child, .. }) => wait_for_child(&rootdir, child),
         Ok(ForkResult::Child) => RunChroot::new(&rootdir).run_chroot(&nixdir, &args[2], &args[3..]),
         Err(e) => {
             eprintln!("fork failed: {}", e);
