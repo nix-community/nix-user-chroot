@@ -103,6 +103,20 @@ The nix config is not in `/etc/nix` but in `/nix/etc/nix`, so that you can
 modify it. This is done with the `NIX_CONF_DIR`, which you can override at any
 time.
 
+Libraries and applications from Nixpkgs with OpenGL or CUDA support need to
+load libraries from /run/opengl-driver/lib. For convenience, nix-user-chroot
+will bind mount /nix/var/nix/opengl-driver/lib (if it exists) to this location.
+You will still need to link the system libraries here, as their original
+locations are distro-dependent. For example, for CUDA support on Ubuntu 20.04:
+
+```console
+$ mkdir -p /nix/var/nix/opengl-driver/lib
+$ ln -s /usr/lib/x86_64-linux-gnu/libcuda.so.1 /nix/var/nix/opengl-driver/lib
+```
+
+If this directory didn't exist when you first entered the nix user chroot, you
+will need to reenter for /run/opengl-driver/lib to be mounted.
+
 ## Whishlist
 
 These are features the author would like to see, let me know, if you want to work

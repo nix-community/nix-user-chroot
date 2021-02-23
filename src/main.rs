@@ -46,13 +46,27 @@ impl<'a> RunChroot<'a> {
 
     fn bind_mount_directory(&self, entry: &fs::DirEntry) {
         let mountpoint = self.rootdir.join(entry.file_name());
-        if let Err(e) = fs::create_dir(&mountpoint) {
-            if e.kind() != io::ErrorKind::AlreadyExists {
-                panic!("failed to create {}: {}", &mountpoint.display(), e);
-            }
-        }
 
-        bind_mount(&entry.path(), &mountpoint)
+        // if there is already a dir here, recurse into it,
+        // and mount any subdirs which don't already exist
+        if mountpoint.is_dir() {
+            let dir = fs::read_dir(entry.path()).unwrap_or_else(|err| {
+                panic!("failed to list dir {}: {}", entry.path().display(), err)
+            });
+
+            let child = RunChroot::new(&mountpoint);
+            for entry in dir {
+                child.bind_mount_direntry(entry);
+            }
+        } else {
+            if let Err(e) = fs::create_dir(&mountpoint) {
+                if e.kind() != io::ErrorKind::AlreadyExists {
+                    panic!("failed to create {}: {}", &mountpoint.display(), e);
+                }
+            }
+
+            bind_mount(&entry.path(), &mountpoint)
+        }
     }
 
     fn bind_mount_file(&self, entry: &fs::DirEntry) {
@@ -104,7 +118,17 @@ impl<'a> RunChroot<'a> {
 
         unshare(CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWUSER).expect("unshare failed");
 
-        // bind mount all / stuff into rootdir
+        // create /run/opengl-driver/lib in chroot, to behave like NixOS
+        // (needed for nix pkgs with OpenGL or CUDA support to work)
+        let ogldir = nixdir.join("var/nix/opengl-driver/lib");
+        if ogldir.is_dir() {
+            let ogl_mount = self.rootdir.join("run/opengl-driver/lib");
+            fs::create_dir_all(&ogl_mount)
+                .unwrap_or_else(|err| panic!("failed to create {}: {}", &ogl_mount.display(), err));
+            bind_mount(&ogldir, &ogl_mount);
+        }
+
+        // bind the rest of / stuff into rootdir
         let nix_root = PathBuf::from("/");
         let dir = fs::read_dir(&nix_root).expect("failed to list /nix directory");
         for entry in dir {
