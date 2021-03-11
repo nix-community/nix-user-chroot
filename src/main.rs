@@ -1,4 +1,3 @@
-use nix;
 use nix::mount::{mount, MsFlags};
 use nix::sched::{unshare, CloneFlags};
 use nix::sys::signal::{kill, Signal};

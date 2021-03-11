@@ -3,7 +3,6 @@ use std::env;
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
-use std::ptr;
 
 mod ffi {
     extern "C" {
@@ -18,7 +17,7 @@ pub fn mkdtemp(template: &str) -> nix::Result<PathBuf> {
     buf.push(b'\0'); // make a c string
 
     let res = unsafe { ffi::mkdtemp(buf.as_mut_ptr() as *mut libc::c_char) };
-    if res == ptr::null_mut() {
+    if res.is_null() {
         Err(nix::Error::Sys(Errno::last()))
     } else {
         buf.pop(); // strip null byte
