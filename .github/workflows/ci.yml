@@ -26,9 +26,6 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
-      - name: Ready cache
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo chown -R $(whoami):$(id -ng) ~/.cargo/
       - name: install aarch64-compiler cross-compiler
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
@@ -47,12 +44,6 @@ jobs:
           [target.armv7-unknown-linux-musleabihf]
           linker = "arm-linux-gnueabihf-gcc"
           EOF
-      - name: Cache cargo
-        uses: actions/cache@v2.1.4
-        id: cache
-        with:
-          path: ~/.cargo
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
       - name: Test
         uses: actions-rs/cargo@v1
         if: matrix.target != 'armv7-unknown-linux-musleabihf' && matrix.target != 'aarch64-unknown-linux-musl'
@@ -65,15 +56,6 @@ jobs:
         with:
           command: build
           args: --target ${{ matrix.target }}
-      - name: Install cargo-cache
-        uses: actions-rs/install@v0.1
-        if: steps.cache.outputs.cache-hit != 'true'
-        with:
-          crate: cargo-cache
-          use-tool-cache: true
-      - name: Cleanup cache
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: cargo cache -a
   lint:
     name: Linting (fmt + clippy)
     runs-on: ubuntu-latest
@@ -87,14 +69,6 @@ jobs:
           components: rustfmt, clippy
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Ready cache
-        run: sudo chown -R $(whoami):$(id -ng) ~/.cargo/
-      - name: Cache cargo
-        uses: actions/cache@v2.1.4
-        id: cache
-        with:
-          path: ~/.cargo
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
       - name: Clippy
         uses: actions-rs/cargo@v1
         with:
@@ -104,12 +78,3 @@ jobs:
         with:
           command: fmt
           args: -- --check
-      - name: Install cargo-cache
-        uses: actions-rs/install@v0.1
-        if: steps.cache.outputs.cache-hit != 'true'
-        with:
-          crate: cargo-cache
-          use-tool-cache: true
-      - name: Cleanup cache
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: cargo cache -a
