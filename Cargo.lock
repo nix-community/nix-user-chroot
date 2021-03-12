@@ -40,7 +40,7 @@ dependencies = [
 
 [[package]]
 name = "nix-user-chroot"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "libc",
  "nix",
