@@ -1,4 +1,3 @@
-use nix;
 use nix::mount::{mount, MsFlags};
 use nix::sched::{unshare, CloneFlags};
 use nix::sys::signal::{kill, Signal};
@@ -46,17 +45,38 @@ impl<'a> RunChroot<'a> {
 
     fn bind_mount_directory(&self, entry: &fs::DirEntry) {
         let mountpoint = self.rootdir.join(entry.file_name());
-        if let Err(e) = fs::create_dir(&mountpoint) {
-            if e.kind() != io::ErrorKind::AlreadyExists {
-                panic!("failed to create {}: {}", &mountpoint.display(), e);
+
+        // if the destination doesn't exist we can proceed as normal
+        if !mountpoint.exists() {
+            if let Err(e) = fs::create_dir(&mountpoint) {
+                if e.kind() != io::ErrorKind::AlreadyExists {
+                    panic!("failed to create {}: {}", &mountpoint.display(), e);
+                }
+            }
+
+            bind_mount(&entry.path(), &mountpoint)
+        } else {
+            // otherwise, if the dest is also a dir, we can recurse into it
+            // and mount subdirectory siblings of existing paths
+            if mountpoint.is_dir() {
+                let dir = fs::read_dir(entry.path()).unwrap_or_else(|err| {
+                    panic!("failed to list dir {}: {}", entry.path().display(), err)
+                });
+
+                let child = RunChroot::new(&mountpoint);
+                for entry in dir {
+                    let entry = entry.expect("error while listing subdir");
+                    child.bind_mount_direntry(&entry);
+                }
             }
         }
-
-        bind_mount(&entry.path(), &mountpoint)
     }
 
     fn bind_mount_file(&self, entry: &fs::DirEntry) {
         let mountpoint = self.rootdir.join(entry.file_name());
+        if mountpoint.exists() {
+            return;
+        }
         fs::File::create(&mountpoint)
             .unwrap_or_else(|err| panic!("failed to create {}: {}", &mountpoint.display(), err));
 
@@ -64,10 +84,13 @@ impl<'a> RunChroot<'a> {
     }
 
     fn mirror_symlink(&self, entry: &fs::DirEntry) {
+        let link_path = self.rootdir.join(entry.file_name());
+        if link_path.exists() {
+            return;
+        }
         let path = entry.path();
         let target = fs::read_link(&path)
             .unwrap_or_else(|err| panic!("failed to resolve symlink {}: {}", &path.display(), err));
-        let link_path = self.rootdir.join(entry.file_name());
         symlink(&target, &link_path).unwrap_or_else(|_| {
             panic!(
                 "failed to create symlink {} -> {}",
@@ -77,16 +100,12 @@ impl<'a> RunChroot<'a> {
         });
     }
 
-    fn bind_mount_direntry(&self, entry: io::Result<fs::DirEntry>) {
-        let entry = entry.expect("error while listing from /nix directory");
-        // do not bind mount an existing nix installation
-        if entry.file_name() == PathBuf::from("nix") {
-            return;
-        }
+    fn bind_mount_direntry(&self, entry: &fs::DirEntry) {
         let path = entry.path();
         let stat = entry
             .metadata()
             .unwrap_or_else(|err| panic!("cannot get stat of {}: {}", path.display(), err));
+
         if stat.is_dir() {
             self.bind_mount_directory(&entry);
         } else if stat.is_file() {
@@ -104,11 +123,26 @@ impl<'a> RunChroot<'a> {
 
         unshare(CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWUSER).expect("unshare failed");
 
-        // bind mount all / stuff into rootdir
+        // create /run/opengl-driver/lib in chroot, to behave like NixOS
+        // (needed for nix pkgs with OpenGL or CUDA support to work)
+        let ogldir = nixdir.join("var/nix/opengl-driver/lib");
+        if ogldir.is_dir() {
+            let ogl_mount = self.rootdir.join("run/opengl-driver/lib");
+            fs::create_dir_all(&ogl_mount)
+                .unwrap_or_else(|err| panic!("failed to create {}: {}", &ogl_mount.display(), err));
+            bind_mount(&ogldir, &ogl_mount);
+        }
+
+        // bind the rest of / stuff into rootdir
         let nix_root = PathBuf::from("/");
         let dir = fs::read_dir(&nix_root).expect("failed to list /nix directory");
         for entry in dir {
-            self.bind_mount_direntry(entry);
+            let entry = entry.expect("error while listing from /nix directory");
+            // do not bind mount an existing nix installation
+            if entry.file_name() == PathBuf::from("nix") {
+                continue;
+            }
+            self.bind_mount_direntry(&entry);
         }
 
         // mount the store
