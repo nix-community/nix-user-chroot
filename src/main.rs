@@ -22,7 +22,7 @@ fn bind_mount(source: &Path, dest: &Path) {
         Some(source),
         dest,
         Some("none"),
-        MsFlags::MS_BIND | MsFlags::MS_REC,
+        MsFlags::MS_BIND | MsFlags::MS_REC | MsFlags::MS_PRIVATE,
         NONE,
     ) {
         eprintln!(
