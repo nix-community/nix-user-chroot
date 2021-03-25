@@ -143,3 +143,7 @@ This assumes we just install to `$XDG_DATA_HOME` or `$HOME/.data/nix` by default
 
 Since not all linux distributions allow user namespaces by default, we will need
 packages for those that install setuid binaries to achieve the same.
+
+## Similar projects
+
+[nix-portable](https://github.com/DavHau/nix-portable)
