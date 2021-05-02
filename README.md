@@ -93,7 +93,7 @@ functionality using `nix run --store ~/.nix nixpkgs.bash nixpkgs.coreutils`:
 After installation you can always get into the nix user chroot using:
 
 ```console
-$ nix-user-chroot ~/.nix bash
+$ nix-user-chroot ~/.nix bash -l
 ```
 
 You are in a user chroot where `/` is owned by your user, hence also `/nix` is
