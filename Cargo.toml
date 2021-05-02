@@ -5,6 +5,9 @@ license = "MIT"
 version = "1.2.2"
 authors = ["Jörg Thalheim <joerg@thalheim.io>"]
 edition = "2018"
+homepage = "https://github.com/nix-community/nix-user-chroot"
+documentation = "https://github.com/nix-community/nix-user-chroot"
+repository = "https://github.com/nix-community/nix-user-chroot"
 
 [dependencies]
 nix = "0.20.0"
