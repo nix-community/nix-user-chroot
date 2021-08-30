@@ -4,6 +4,7 @@ use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{self, fork, ForkResult};
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
@@ -107,11 +108,11 @@ impl<'a> RunChroot<'a> {
             .unwrap_or_else(|err| panic!("cannot get stat of {}: {}", path.display(), err));
 
         if stat.is_dir() {
-            self.bind_mount_directory(&entry);
+            self.bind_mount_directory(entry);
         } else if stat.is_file() {
-            self.bind_mount_file(&entry);
+            self.bind_mount_file(entry);
         } else if stat.file_type().is_symlink() {
-            self.mirror_symlink(&entry);
+            self.mirror_symlink(entry);
         }
     }
 
@@ -139,7 +140,7 @@ impl<'a> RunChroot<'a> {
         for entry in dir {
             let entry = entry.expect("error while listing from /nix directory");
             // do not bind mount an existing nix installation
-            if entry.file_name() == PathBuf::from("nix") {
+            if entry.file_name() == OsStr::new("nix") {
                 continue;
             }
             self.bind_mount_direntry(&entry);
