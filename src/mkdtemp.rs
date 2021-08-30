@@ -18,7 +18,7 @@ pub fn mkdtemp(template: &str) -> nix::Result<PathBuf> {
 
     let res = unsafe { ffi::mkdtemp(buf.as_mut_ptr() as *mut libc::c_char) };
     if res.is_null() {
-        Err(nix::Error::Sys(Errno::last()))
+        Err(Errno::last())
     } else {
         buf.pop(); // strip null byte
         Ok(PathBuf::from(OsString::from_vec(buf)))
