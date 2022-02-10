@@ -32,7 +32,7 @@ fn bind_mount(source: &Path, dest: &Path) {
         MsFlags::MS_BIND | MsFlags::MS_REC | MsFlags::MS_PRIVATE,
         NONE,
     ) {
-        eprintln!(
+        log::error!(
             "failed to bind mount {} to {}: {}",
             source.display(),
             dest.display(),
@@ -198,7 +198,7 @@ impl<'a> RunChroot<'a> {
                 }
             }
 
-            eprintln!("BIND DIRECTORY {} -> {}", entry.path().display(), mountpoint.display());
+            log::info!("BIND DIRECTORY {} -> {}", entry.path().display(), mountpoint.display());
 
             bind_mount(&entry.path(), &mountpoint)
         } else {
@@ -246,7 +246,7 @@ impl<'a> RunChroot<'a> {
         let target = self.resolve_nix_path(path.clone(), true)
             .unwrap_or_else(|err| panic!("failed to resolve symlink {}: {}", &path.display(), err));
 
-        eprintln!("MIRROR SYMLINK {} -> {}", target.display(), link_path.display());
+        log::info!("MIRROR SYMLINK {} -> {}", target.display(), link_path.display());
 
         symlink(&target, &link_path).unwrap_or_else(|err| {
             panic!(
@@ -379,7 +379,7 @@ impl<'a> RunChroot<'a> {
 
         for (src, dest) in explicit_mounts {
             if let Ok(src) = self.resolve_nix_path(src.clone(), true) {
-                eprintln!("{} -> {}", src.display(), dest.display());
+                log::info!("EXPLICIT {} -> {}", src.display(), dest.display());
 
                 let adjusted_dest = dest
                     .strip_prefix("/") // we have guarantees that `dest` is absolute
@@ -412,7 +412,7 @@ impl<'a> RunChroot<'a> {
 
         for p in mount_exclude_list {
             let mount = self.rootdir.join(p.strip_prefix("/").unwrap());
-            eprintln!("UNBIND {}", mount.display());
+            log::info!("UNBIND {}", mount.display());
             umount(&mount).unwrap();
         }
 
@@ -504,6 +504,12 @@ fn wait_for_child(rootdir: &Path, child_pid: unistd::Pid) -> ! {
 }
 
 fn main() {
+    let mut builder = env_logger::Builder::new();
+    builder
+        .filter_level(log::LevelFilter::Warn)
+        .parse_default_env()
+        .init();
+
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
         eprintln!("Usage: {} <nixpath> <command>\n", args[0]);
