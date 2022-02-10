@@ -13,7 +13,7 @@ use std::{
 };
 
 use nix::{
-    mount::{mount, MsFlags},
+    mount::{mount, umount, MsFlags},
     sched::{unshare, CloneFlags},
     sys::signal::{kill, Signal},
     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
@@ -246,7 +246,7 @@ impl<'a> RunChroot<'a> {
         let target = self.resolve_nix_path(path.clone(), true)
             .unwrap_or_else(|err| panic!("failed to resolve symlink {}: {}", &path.display(), err));
 
-        eprintln!("MIRROR SYMLINK {} -> {}", link_path.display(), target.display());
+        eprintln!("MIRROR SYMLINK {} -> {}", target.display(), link_path.display());
 
         symlink(&target, &link_path).unwrap_or_else(|err| {
             panic!(
@@ -284,10 +284,12 @@ impl<'a> RunChroot<'a> {
 
         if stat.is_dir() {
             self.bind_mount_directory(entry);
-        } else if stat.is_file() {
+        } else if stat.is_file() || path == Path::new("/dev/null") {
             self.bind_mount_file(entry);
         } else if stat.file_type().is_symlink() {
             self.mirror_symlink(entry);
+        } else {
+            panic!("don't know what to do with: {}", path.display())
         }
     }
 
@@ -312,6 +314,10 @@ impl<'a> RunChroot<'a> {
         // TODO: test mounting in something to `/`; should work
         // TODO: test `cargo` or something else where the symlink's name is actually important (both as an explicit bind mount and an incidental one to make sure the logic is right)
 
+        let mount_exclude_list = vec![
+            (Path::new("/var/run/nscd")),
+        ];
+
         // can be "absolute" (wrt to the profile dir) or relative
         let profile_links = vec![
             (Path::new("/sbin/zic"), Path::new("/usr/bin/zic")),
@@ -324,8 +330,8 @@ impl<'a> RunChroot<'a> {
         let regular_links = vec![
             (PathBuf::from("/some/dir/home/.nix-profile/bin/cargo"), Path::new("/bin/cargo")),
             (PathBuf::from("/some/dir/config/group"), Path::new("/etc/group")),
+            (PathBuf::from("/some/dir/config/passwd"), Path::new("/etc/passwd")),
         ];
-
         // mount in explicit mounts (profile relative and absolute):
         let user = unistd::User::from_uid(uid).unwrap().unwrap();
         let profile_dir = self.nixdir.join("var/nix/profiles/per-user").join(&user.name).join("profile");
@@ -350,6 +356,12 @@ impl<'a> RunChroot<'a> {
                 (prof_p, chroot_p)
             })
             .map(|(prof_p, chroot_p)| (profile_dir.as_ref().unwrap().join(prof_p), chroot_p))
+            .chain(
+                // TODO: this should actually probably happen first.
+                mount_exclude_list
+                .iter()
+                .map(|&ex| (PathBuf::from("/dev/null"), ex))
+            )
             .chain(
                 regular_links
                     .into_iter()
@@ -396,6 +408,12 @@ impl<'a> RunChroot<'a> {
                 continue;
             }
             self.bind_mount_direntry(&entry);
+        }
+
+        for p in mount_exclude_list {
+            let mount = self.rootdir.join(p.strip_prefix("/").unwrap());
+            eprintln!("UNBIND {}", mount.display());
+            umount(&mount).unwrap();
         }
 
         // mount the store
