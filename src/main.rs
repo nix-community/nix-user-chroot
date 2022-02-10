@@ -1,13 +1,11 @@
 use std::{
     borrow::ToOwned,
+    collections::{HashMap, HashSet},
     env,
-    ffi::{OsString, OsStr},
+    ffi::{OsStr, OsString},
     fs::{self, DirEntry},
     io::{self, Write},
-    os::unix::{
-        fs::symlink,
-        process::CommandExt,
-    },
+    os::unix::{fs::symlink, process::CommandExt},
     path::{Path, PathBuf},
     process,
 };
@@ -19,6 +17,7 @@ use nix::{
     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
     unistd::{self, fork, ForkResult},
 };
+use serde_derive::Deserialize;
 
 mod mkdtemp;
 
@@ -65,7 +64,10 @@ pub enum DirEntryOrExplicitMount<'a> {
     /// `"/bin"`.
     ///
     /// This path *can* be `/`.
-    ExplicitMount { src: &'a Path, dst_file_name: Option<&'a OsStr> },
+    ExplicitMount {
+        src: &'a Path,
+        dst_file_name: Option<&'a OsStr>,
+    },
 }
 
 impl<'a> From<&'a DirEntry> for DirEntryOrExplicitMount<'a> {
@@ -75,7 +77,10 @@ impl<'a> From<&'a DirEntry> for DirEntryOrExplicitMount<'a> {
 }
 
 impl<'a> DirEntryOrExplicitMount<'a> {
-    fn explicit_mount_with_dest_file_name(mount: &'a Path, dst_file: &'a (impl AsRef<Path> + 'a)) -> Self {
+    fn explicit_mount_with_dest_file_name(
+        mount: &'a Path,
+        dst_file: &'a (impl AsRef<Path> + 'a),
+    ) -> Self {
         DirEntryOrExplicitMount::ExplicitMount {
             src: mount,
             dst_file_name: dst_file.as_ref().file_name(),
@@ -112,6 +117,21 @@ impl DirEntryOrExplicitMount<'_> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PathConfig<'a> {
+    excludes: ExcludePaths<'a>,
+    #[serde(borrow)]
+    profile: HashMap<&'a Path, &'a Path>,
+    #[serde(borrow)]
+    absolute: HashMap<&'a Path, &'a Path>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ExcludePaths<'a> {
+    #[serde(borrow)]
+    paths: HashSet<&'a Path>,
+}
+
 pub struct RunChroot<'a> {
     rootdir: &'a Path,
     nixdir: &'a Path,
@@ -123,7 +143,10 @@ impl<'a> RunChroot<'a> {
     }
 
     fn with_rootdir(&self, rootdir: &'a Path) -> Self {
-        Self { rootdir, nixdir: self.nixdir }
+        Self {
+            rootdir,
+            nixdir: self.nixdir,
+        }
     }
 
     /// Recursively resolves a symlink, replacing references to `/nix` with
@@ -133,7 +156,11 @@ impl<'a> RunChroot<'a> {
     /// that isn't in `/nix`. This exists for [`mirror_symlink`] which
     /// intentionally does not resolve symlinks all the way down when mirroring
     /// them into the chroot.
-    fn resolve_nix_path(&self, p: PathBuf, stop_at_first_non_nix_path: bool) -> io::Result<PathBuf> {
+    fn resolve_nix_path(
+        &self,
+        p: PathBuf,
+        stop_at_first_non_nix_path: bool,
+    ) -> io::Result<PathBuf> {
         if p.is_symlink() {
             let mut target = fs::read_link(&p)?;
             if !target.is_absolute() {
@@ -146,7 +173,7 @@ impl<'a> RunChroot<'a> {
                 self.nixdir.join(rest)
             } else {
                 if stop_at_first_non_nix_path {
-                    return Ok(target)
+                    return Ok(target);
                 }
 
                 target
@@ -167,13 +194,18 @@ impl<'a> RunChroot<'a> {
             while path.pop() {
                 i += 1;
 
-                if path.is_symlink() && path.read_link().map(|p| p.starts_with("/nix")).unwrap_or(false) {
+                if path.is_symlink()
+                    && path
+                        .read_link()
+                        .map(|p| p.starts_with("/nix"))
+                        .unwrap_or(false)
+                {
                     // if we did find a parent that's a symlink, resolve it:
                     let actual_parent = self.resolve_nix_path(path, stop_at_first_non_nix_path)?;
 
                     // append the components we stripped off to the resolved parent:
                     let parts = p.iter().collect::<Vec<_>>();
-                    let stripped = &parts[parts.len()-i..];
+                    let stripped = &parts[parts.len() - i..];
                     let path = actual_parent.join(stripped.iter().collect::<PathBuf>());
 
                     // and try again:
@@ -181,7 +213,7 @@ impl<'a> RunChroot<'a> {
                 }
             }
 
-            Err(io::ErrorKind::NotFound)?
+            Err(io::ErrorKind::NotFound.into())
         }
     }
 
@@ -198,7 +230,11 @@ impl<'a> RunChroot<'a> {
                 }
             }
 
-            log::info!("BIND DIRECTORY {} -> {}", entry.path().display(), mountpoint.display());
+            log::info!(
+                "BIND DIRECTORY {} -> {}",
+                entry.path().display(),
+                mountpoint.display()
+            );
 
             bind_mount(&entry.path(), &mountpoint)
         } else {
@@ -212,7 +248,7 @@ impl<'a> RunChroot<'a> {
                 let child = self.with_rootdir(&mountpoint);
                 for entry in dir {
                     let entry = entry.expect("error while listing subdir");
-                    child.bind_mount_direntry(&entry);
+                    child.bind_mount_entry(&entry);
                 }
             }
         }
@@ -222,7 +258,11 @@ impl<'a> RunChroot<'a> {
     fn bind_mount_file<'p>(&self, entry: impl Into<DirEntryOrExplicitMount<'p>>) {
         let entry = entry.into();
         let mountpoint = self.rootdir.join(entry.file_name().unwrap_or_default());
-        eprintln!("BIND FILE {} -> {}", entry.path().display(), mountpoint.display());
+        log::info!(
+            "BIND FILE {} -> {}",
+            entry.path().display(),
+            mountpoint.display()
+        );
         if mountpoint.exists() {
             return;
         }
@@ -243,10 +283,15 @@ impl<'a> RunChroot<'a> {
         let path = entry.path();
 
         // stops resolving the symlink at the first non-nix path
-        let target = self.resolve_nix_path(path.clone(), true)
+        let target = self
+            .resolve_nix_path(path.clone(), true)
             .unwrap_or_else(|err| panic!("failed to resolve symlink {}: {}", &path.display(), err));
 
-        log::info!("MIRROR SYMLINK {} -> {}", target.display(), link_path.display());
+        log::info!(
+            "MIRROR SYMLINK {} -> {}",
+            target.display(),
+            link_path.display()
+        );
 
         symlink(&target, &link_path).unwrap_or_else(|err| {
             panic!(
@@ -257,7 +302,7 @@ impl<'a> RunChroot<'a> {
         });
     }
 
-    fn bind_mount_direntry<'p>(&self, entry: impl Into<DirEntryOrExplicitMount<'p>>) {
+    fn bind_mount_entry<'p>(&self, entry: impl Into<DirEntryOrExplicitMount<'p>>) {
         use DirEntryOrExplicitMount::*;
         let mut entry = entry.into();
 
@@ -271,9 +316,15 @@ impl<'a> RunChroot<'a> {
             entry = match entry {
                 DirEntry(d) => {
                     dst_file_name = d.file_name();
-                    ExplicitMount { src: &*adj_path, dst_file_name: Some(&dst_file_name) }
+                    ExplicitMount {
+                        src: &*adj_path,
+                        dst_file_name: Some(&dst_file_name),
+                    }
+                }
+                ExplicitMount { dst_file_name, .. } => ExplicitMount {
+                    src: &*adj_path,
+                    dst_file_name,
                 },
-                ExplicitMount { dst_file_name, .. } => ExplicitMount { src: &*adj_path, dst_file_name }
             };
         }
 
@@ -293,7 +344,7 @@ impl<'a> RunChroot<'a> {
         }
     }
 
-    fn run_chroot(&self, cmd: &str, args: &[String]) {
+    fn run_chroot(&self, cmd: &str, args: &[String], path_config: Option<PathConfig<'_>>) {
         let cwd = env::current_dir().expect("cannot get current working directory");
 
         let uid = unistd::getuid();
@@ -314,87 +365,83 @@ impl<'a> RunChroot<'a> {
         // TODO: test mounting in something to `/`; should work
         // TODO: test `cargo` or something else where the symlink's name is actually important (both as an explicit bind mount and an incidental one to make sure the logic is right)
 
-        let mount_exclude_list = vec![
-            (Path::new("/var/run/nscd")),
-        ];
+        // mount in explicit mounts (profile relative, absolute, and placeholders to "reserve" the excludes):
+        if let Some(ref c) = path_config {
+            let user = unistd::User::from_uid(uid).unwrap().unwrap();
+            let profile_dir = self
+                .nixdir
+                .join("var/nix/profiles/per-user")
+                .join(&user.name)
+                .join("profile");
+            let profile_dir = self.resolve_nix_path(profile_dir, false);
 
-        // can be "absolute" (wrt to the profile dir) or relative
-        let profile_links = vec![
-            (Path::new("/sbin/zic"), Path::new("/usr/bin/zic")),
-            (Path::new("/bin/sh"), Path::new("/bin/sh")),
-            (Path::new("/bin/bash"), Path::new("/bin/bash")),
-            (Path::new("/bin/python3"), Path::new("/bin/python3")),
-            (Path::new("/bin/env"), Path::new("/usr/bin/env")),
-        ];
-        // must be absolute
-        let regular_links = vec![
-            (PathBuf::from("/some/dir/home/.nix-profile/bin/cargo"), Path::new("/bin/cargo")),
-            (PathBuf::from("/some/dir/config/group"), Path::new("/etc/group")),
-            (PathBuf::from("/some/dir/config/passwd"), Path::new("/etc/passwd")),
-        ];
-        // mount in explicit mounts (profile relative and absolute):
-        let user = unistd::User::from_uid(uid).unwrap().unwrap();
-        let profile_dir = self.nixdir.join("var/nix/profiles/per-user").join(&user.name).join("profile");
-
-
-        let profile_dir = self.resolve_nix_path(profile_dir, false);
-
-        let explicit_mounts = profile_links
-            .into_iter()
-            .filter(|(s, d)| if profile_dir.is_ok() {
-                true
-            } else {
-                eprintln!("Warning: couldn't find a profile for user `{}`; skipping profile mount `{}` -> `{}`", &user.name, s.display(), d.display());
-                false
-            })
-            .map(|(mut prof_p, chroot_p)| {
-                // to allow for both "absolute" and relative paths in the profile relative mounts
-                if prof_p.is_absolute() {
-                    prof_p = prof_p.strip_prefix("/").unwrap()
-                }
-
-                (prof_p, chroot_p)
-            })
-            .map(|(prof_p, chroot_p)| (profile_dir.as_ref().unwrap().join(prof_p), chroot_p))
-            .chain(
-                // TODO: this should actually probably happen first.
-                mount_exclude_list
+            let explicit_mounts = c.profile
                 .iter()
-                .map(|&ex| (PathBuf::from("/dev/null"), ex))
-            )
-            .chain(
-                regular_links
-                    .into_iter()
-                    .inspect(|(src, _)| {
-                        if !src.is_absolute() {
-                            panic!("Explicit mount sources (excluding profile mounts) must be absolute paths! `{}` is not absolute.", src.display())
-                        }
-                    })
-            )
-            .inspect(|(_, dest)| {
-                if !dest.is_absolute() {
-                    panic!("All explicit mount destinations must be absolute paths! `{}` is not absolute.", dest.display())
+                .map(|(s, d)| (*s, *d))
+                .filter(|(s, d)| if profile_dir.is_ok() {
+                    true
+                } else {
+                    eprintln!("Warning: couldn't find a profile for user `{}`; skipping profile mount `{}` -> `{}`", &user.name, s.display(), d.display());
+                    false
+                })
+                .map(|(mut prof_p, chroot_p)| {
+                    // to allow for both "absolute" and relative paths in the profile relative mounts
+                    if prof_p.is_absolute() {
+                        prof_p = prof_p.strip_prefix("/").unwrap()
+                    }
+
+                    (prof_p, chroot_p)
+                })
+                .map(|(prof_p, chroot_p)| (profile_dir.as_ref().unwrap().join(prof_p), chroot_p))
+                .chain(
+                    // TODO: this should actually probably happen first.
+                    c.excludes.paths
+                        .iter()
+                        .map(|&ex| (PathBuf::from("/dev/null"), ex))
+                )
+                .chain(
+                    c.absolute
+                        .iter()
+                        .map(|(s, d)| (*s, *d))
+                        .inspect(|(src, _)| {
+                            if !src.is_absolute() {
+                                panic!("Explicit mount sources (excluding profile mounts) must be absolute paths! `{}` is not absolute.", src.display())
+                            }
+                        })
+                        .map(|(src, dest)| {
+                            (src.to_owned(), dest)
+                        })
+                )
+                .inspect(|(_, dest)| {
+                    if !dest.is_absolute() {
+                        panic!("All explicit mount destinations must be absolute paths! `{}` is not absolute.", dest.display())
+                    }
+                });
+
+            for (src, dest) in explicit_mounts {
+                if let Ok(src) = self.resolve_nix_path(src.clone(), true) {
+                    log::info!("EXPLICIT {} -> {}", src.display(), dest.display());
+
+                    let adjusted_dest = dest
+                        .strip_prefix("/") // we have guarantees that `dest` is absolute
+                        .unwrap()
+                        .parent()
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_default();
+                    let parent = self.rootdir.join(adjusted_dest);
+
+                    fs::create_dir_all(&parent).unwrap();
+
+                    let parent = self.with_rootdir(&parent);
+                    parent.bind_mount_entry(
+                        DirEntryOrExplicitMount::explicit_mount_with_dest_file_name(&*src, &dest),
+                    );
+                } else {
+                    eprintln!(
+                        "warning: explicit mount source `{}` doesn't seem to exist!",
+                        src.display()
+                    );
                 }
-            });
-
-        for (src, dest) in explicit_mounts {
-            if let Ok(src) = self.resolve_nix_path(src.clone(), true) {
-                log::info!("EXPLICIT {} -> {}", src.display(), dest.display());
-
-                let adjusted_dest = dest
-                    .strip_prefix("/") // we have guarantees that `dest` is absolute
-                    .unwrap()
-                    .parent()
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_default();
-                let parent = self.rootdir.join(adjusted_dest);
-
-                fs::create_dir_all(&parent).unwrap();
-
-                let parent = self.with_rootdir(&parent);
-                parent.bind_mount_direntry(DirEntryOrExplicitMount::explicit_mount_with_dest_file_name(&*src, &dest));
-            } else {
-                eprintln!("warning: explicit mount source `{}` doesn't seem to exist!", src.display());
             }
         }
 
@@ -407,13 +454,16 @@ impl<'a> RunChroot<'a> {
             if entry.file_name() == "nix" {
                 continue;
             }
-            self.bind_mount_direntry(&entry);
+            self.bind_mount_entry(&entry);
         }
 
-        for p in mount_exclude_list {
-            let mount = self.rootdir.join(p.strip_prefix("/").unwrap());
-            log::info!("UNBIND {}", mount.display());
-            umount(&mount).unwrap();
+        // remove the placeholders we used for the excludes
+        if let Some(c) = path_config {
+            for &p in c.excludes.paths.iter() {
+                let mount = self.rootdir.join(p.strip_prefix("/").unwrap());
+                log::info!("UNBIND {}", mount.display());
+                umount(&mount).unwrap();
+            }
         }
 
         // mount the store
@@ -427,7 +477,13 @@ impl<'a> RunChroot<'a> {
             MsFlags::MS_BIND | MsFlags::MS_REC,
             NONE,
         )
-        .unwrap_or_else(|err| panic!("failed to bind mount {} to /nix: {}", self.nixdir.display(), err));
+        .unwrap_or_else(|err| {
+            panic!(
+                "failed to bind mount {} to /nix: {}",
+                self.nixdir.display(),
+                err
+            )
+        });
 
         // chroot
         unistd::chroot(self.rootdir)
@@ -522,9 +578,20 @@ fn main() {
     let nixdir = fs::canonicalize(&args[1])
         .unwrap_or_else(|err| panic!("failed to resolve nix directory {}: {}", &args[1], err));
 
+    let path_config_file_path = nixdir.join("etc/nix-user-chroot/path-config.toml");
+    let config_file;
+    let config_file = if path_config_file_path.exists() {
+        config_file = fs::read_to_string(path_config_file_path).unwrap();
+        Some(toml::from_str(&*config_file).unwrap())
+    } else {
+        None
+    };
+
     match unsafe { fork() } {
         Ok(ForkResult::Parent { child, .. }) => wait_for_child(&rootdir, child),
-        Ok(ForkResult::Child) => RunChroot::new(&rootdir, &nixdir).run_chroot(&args[2], &args[3..]),
+        Ok(ForkResult::Child) => {
+            RunChroot::new(&rootdir, &nixdir).run_chroot(&args[2], &args[3..], config_file)
+        }
         Err(e) => {
             eprintln!("fork failed: {}", e);
         }
