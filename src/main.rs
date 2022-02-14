@@ -241,9 +241,17 @@ impl<'a> RunChroot<'a> {
             // otherwise, if the dest is also a dir, we can recurse into it
             // and mount subdirectory siblings of existing paths
             if mountpoint.is_dir() {
-                let dir = fs::read_dir(entry.path()).unwrap_or_else(|err| {
-                    panic!("failed to list dir {}: {}", entry.path().display(), err)
-                });
+                let dir = match fs::read_dir(entry.path()) {
+                    Ok(dir) => dir,
+                    Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
+                        log::warn!(
+                            "don't have persmission to access directory {}, skipping...",
+                            entry.path().display()
+                        );
+                        return;
+                    }
+                    Err(err) => panic!("failed to list dir {}: {}", entry.path().display(), err),
+                };
 
                 let child = self.with_rootdir(&mountpoint);
                 for entry in dir {
