@@ -10,5 +10,10 @@ documentation = "https://github.com/nix-community/nix-user-chroot"
 repository = "https://github.com/nix-community/nix-user-chroot"
 
 [dependencies]
-nix = "0.23.1"
+env_logger = "0.9"
 libc = "0.2.117"
+log = "0.4"
+nix = "0.23.1"
+serde = "1.0"
+serde_derive = "1.0"
+toml = "0.5"
