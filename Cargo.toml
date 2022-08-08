@@ -11,4 +11,4 @@ repository = "https://github.com/nix-community/nix-user-chroot"
 
 [dependencies]
 nix = "0.23.1"
-libc = "0.2.126"
+libc = "0.2.127"
