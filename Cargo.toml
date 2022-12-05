@@ -10,5 +10,5 @@ documentation = "https://github.com/nix-community/nix-user-chroot"
 repository = "https://github.com/nix-community/nix-user-chroot"
 
 [dependencies]
-nix = "0.24.2"
+nix = "0.25.1"
 libc = "0.2.135"
