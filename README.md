@@ -1,6 +1,14 @@
 # nix-user-chroot
 [![Build Status](https://travis-ci.com/nix-community/nix-user-chroot.svg?branch=master)](https://travis-ci.com/nix-community/nix-user-chroot)
 
+**Maintainance status:** unmaintained. I currently do not have any use for the
+tool and therefore do not activly fix bugs or add features. I don't expect many
+regressions over time as kernel APIs are stable but new use cases might break
+with it.  If you are a user having issues with it, you may also try out if
+[nix-portable](https://github.com/DavHau/nix-portable) solves your use case.  If
+you have recommendations from one over the other please, feel free to make a
+pull request to update this description.
+
 Rust rewrite of
 [lethalman's version](https://github.com/lethalman/nix-user-chroot)
 to clarify the license situation.
