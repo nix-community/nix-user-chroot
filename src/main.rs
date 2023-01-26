@@ -13,7 +13,6 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::string::String;
-use std::ffi::OsStr;
 
 mod mkdtemp;
 
