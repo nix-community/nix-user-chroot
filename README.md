@@ -34,9 +34,20 @@ $ grep CONFIG_USER_NS /boot/config-$(uname -r)
 CONFIG_USER_NS=y
 ```
 
-On debian-based system this feature might be disabled by default.
+You can also try reading `/proc/sys/kernel/unprivileged_userns_clone`. This flag should be present, and set to `1`:
+
+```console
+$ cat /proc/sys/kernel/unprivileged_userns_clone
+1
+```
+
+<!-- Tested on Debian-based and on Arch-based. -->
+
+On Debian or Arch-based system this feature might be disabled by default.
 However they provide a [sysctl switch](https://superuser.com/a/1122977)
 to enable it at runtime.
+
+Note that there [may](https://lists.debian.org/debian-kernel/2020/03/msg00237.html) be [security implications](https://security.stackexchange.com/questions/209529/what-does-enabling-kernel-unprivileged-userns-clone-do) to enabling user namespaces.
 
 On RedHat / CentOS 7.4 user namespaces are disabled by default, but can be
 enabled by:
@@ -117,7 +128,7 @@ $ ln -s /usr/lib/x86_64-linux-gnu/libcuda.so.1 /nix/var/nix/opengl-driver/lib
 If this directory didn't exist when you first entered the nix user chroot, you
 will need to reenter for /run/opengl-driver/lib to be mounted.
 
-## Whishlist
+## Wishlist
 
 These are features the author would like to see, let me know, if you want to work
 on this:
