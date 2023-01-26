@@ -1,0 +1,9 @@
+cut_body_after = "" # don't include text from the PR body in the merge commit message
+status = [
+  "Linting (fmt + clippy)",
+  "test (aarch64-unknown-linux-musl)",
+  "test (armv7-unknown-linux-musleabihf)",
+  "test (i686-unknown-linux-musl)",
+  "test (x86_64-unknown-linux-gnu)",
+  "test (x86_64-unknown-linux-musl)"
+]
