@@ -533,8 +533,25 @@ impl<'a> RunChroot<'a> {
         });
 
         // chroot
-        unistd::chroot(self.rootdir)
-            .unwrap_or_else(|err| panic!("chroot({}): {}", self.rootdir.display(), err));
+        unistd::pivot_root(self.rootdir, &nix_mount).unwrap_or_else(|err| {
+            panic!(
+                "pivot_root({}, {}): {}",
+                self.rootdir.display(),
+                &nix_mount.display(),
+                err
+            )
+        });
+
+        // mount the store and hide the old root we fetch nixdir under the old root
+        let nix_store = nix_root.join(self.nixdir);
+        mount(
+            Some(&nix_store),
+            "/nix",
+            Some("none"),
+            MsFlags::MS_BIND | MsFlags::MS_REC,
+            NONE,
+        )
+        .unwrap_or_else(|_| panic!("failed to bind mount {} to /nix", nix_store.display()));
 
         env::set_current_dir("/").expect("cannot change directory to /");
 
