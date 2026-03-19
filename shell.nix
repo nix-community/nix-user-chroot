@@ -1,9 +1,12 @@
-with import <nixpkgs> {};
-stdenv.mkDerivation {
+{
+  pkgs ? import <nixpkgs> { },
+}:
+pkgs.stdenv.mkDerivation {
   name = "env";
-  buildInputs = [
+  buildInputs = with pkgs; [
     bashInteractive
-    rustup
+    cargo
+		rustc
   ];
-  RUST_SRC_PATH = rustPlatform.rustcSrc;
+  RUST_SRC_PATH = pkgs.rustPlatform.rustcSrc;
 }
