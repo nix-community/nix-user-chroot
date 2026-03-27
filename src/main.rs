@@ -576,12 +576,42 @@ fn main() {
         .unwrap_or_else(|err| panic!("failed to resolve nix directory {}: {}", &args[1], err));
 
     let path_config_file_path = nixdir.join("etc/nix-user-chroot/path-config.toml");
-    let path_config = if path_config_file_path.exists() {
-        let contents = fs::read_to_string(&path_config_file_path).unwrap();
-        Some(toml::from_str(&contents).unwrap())
+    let path_config: Option<PathConfig> = if path_config_file_path.exists() {
+        let contents = fs::read_to_string(&path_config_file_path).unwrap_or_else(|e| {
+            eprintln!(
+                "failed to read config file {}: {}",
+                path_config_file_path.display(),
+                e
+            );
+            process::exit(1);
+        });
+        match toml::from_str(&contents) {
+            Ok(cfg) => Some(cfg),
+            Err(e) => {
+                eprintln!(
+                    "failed to parse config file {}: {}",
+                    path_config_file_path.display(),
+                    e
+                );
+                process::exit(1);
+            }
+        }
     } else {
         None
     };
+
+    if let Some(ref c) = path_config {
+        for p in &c.excludes.paths {
+            if !p.is_absolute() {
+                eprintln!(
+                    "exclude path `{}` must be absolute (in {})",
+                    p.display(),
+                    path_config_file_path.display()
+                );
+                process::exit(1);
+            }
+        }
+    }
 
     match unsafe { fork() } {
         Ok(ForkResult::Parent { child, .. }) => wait_for_child(&rootdir, child),
