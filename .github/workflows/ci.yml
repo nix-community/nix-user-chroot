@@ -1,14 +1,15 @@
 name: CI
 on:
   push:
-    branches: [staging, trying]
-  pull_request:
     branches: [master]
-    types: [opened, reopened, synchronize]
+  pull_request:
+  merge_group:
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -20,15 +21,13 @@ jobs:
           - target: aarch64-unknown-linux-musl
             os: ubuntu-24.04-arm
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
       - name: Enable unprivileged user namespaces
         run: |
           sudo sysctl -w kernel.unprivileged_userns_clone=1
@@ -39,29 +38,18 @@ jobs:
           sudo apt-get install -y busybox-static
           echo "NIX_USER_CHROOT_TEST_BUSYBOX=$(which busybox)" >> "$GITHUB_ENV"
       - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --target ${{ matrix.target }}
+        run: cargo test --target ${{ matrix.target }}
+
   lint:
     name: Linting (fmt + clippy)
     runs-on: ubuntu-latest
     steps:
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
           components: rustfmt, clippy
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
       - name: Clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
+        run: cargo clippy --all-targets -- -D warnings
       - name: Format check
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: -- --check
+        run: cargo fmt -- --check
