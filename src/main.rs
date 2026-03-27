@@ -160,6 +160,24 @@ impl<'a> RunChroot<'a> {
         p: PathBuf,
         stop_at_first_non_nix_path: bool,
     ) -> io::Result<PathBuf> {
+        self.resolve_nix_path_inner(p, stop_at_first_non_nix_path, 0)
+    }
+
+    fn resolve_nix_path_inner(
+        &self,
+        p: PathBuf,
+        stop_at_first_non_nix_path: bool,
+        depth: u32,
+    ) -> io::Result<PathBuf> {
+        // Same limit the Linux kernel uses for ELOOP.
+        const MAX_SYMLINK_DEPTH: u32 = 40;
+        if depth > MAX_SYMLINK_DEPTH {
+            return Err(io::Error::other(format!(
+                "too many levels of symbolic links resolving {}",
+                p.display()
+            )));
+        }
+
         if p.is_symlink() {
             let mut target = fs::read_link(&p)?;
             if !target.is_absolute() {
@@ -178,7 +196,7 @@ impl<'a> RunChroot<'a> {
                 target
             };
 
-            self.resolve_nix_path(p, stop_at_first_non_nix_path)
+            self.resolve_nix_path_inner(p, stop_at_first_non_nix_path, depth + 1)
         } else if p.exists() {
             Ok(p)
         } else {
@@ -200,7 +218,8 @@ impl<'a> RunChroot<'a> {
                         .unwrap_or(false)
                 {
                     // if we did find a parent that's a symlink, resolve it:
-                    let actual_parent = self.resolve_nix_path(path, stop_at_first_non_nix_path)?;
+                    let actual_parent =
+                        self.resolve_nix_path_inner(path, stop_at_first_non_nix_path, depth + 1)?;
 
                     // append the components we stripped off to the resolved parent:
                     let parts = p.iter().collect::<Vec<_>>();
@@ -208,7 +227,11 @@ impl<'a> RunChroot<'a> {
                     let path = actual_parent.join(stripped.iter().collect::<PathBuf>());
 
                     // and try again:
-                    return self.resolve_nix_path(path, stop_at_first_non_nix_path);
+                    return self.resolve_nix_path_inner(
+                        path,
+                        stop_at_first_non_nix_path,
+                        depth + 1,
+                    );
                 }
             }
 
