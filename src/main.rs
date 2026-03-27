@@ -405,24 +405,26 @@ impl<'a> RunChroot<'a> {
                 .join("profile");
             let profile_dir = self.resolve_nix_path(profile_dir, false);
 
-            let explicit_mounts = c.profile
+            // Excludes go first so their /dev/null placeholders reserve the
+            // destination paths before profile/absolute mounts (or the / mirror
+            // pass below) can claim them.
+            let explicit_mounts = c.excludes.paths
                 .iter()
-                .filter(|(s, d)| if profile_dir.is_ok() {
-                    true
-                } else {
-                    log::warn!("couldn't find a profile for user `{}`; skipping profile mount `{}` -> `{}`", &user.name, s.display(), d.display());
-                    false
-                })
-                .map(|(prof_p, chroot_p)| {
-                    // to allow for both "absolute" and relative paths in the profile relative mounts
-                    let prof_p = prof_p.strip_prefix("/").unwrap_or(prof_p);
-                    (profile_dir.as_ref().unwrap().join(prof_p), chroot_p)
-                })
+                .map(|ex| (PathBuf::from("/dev/null"), ex))
                 .chain(
-                    // TODO: this should actually probably happen first.
-                    c.excludes.paths
+                    c.profile
                         .iter()
-                        .map(|ex| (PathBuf::from("/dev/null"), ex))
+                        .filter(|(s, d)| if profile_dir.is_ok() {
+                            true
+                        } else {
+                            log::warn!("couldn't find a profile for user `{}`; skipping profile mount `{}` -> `{}`", &user.name, s.display(), d.display());
+                            false
+                        })
+                        .map(|(prof_p, chroot_p)| {
+                            // to allow for both "absolute" and relative paths in the profile relative mounts
+                            let prof_p = prof_p.strip_prefix("/").unwrap_or(prof_p);
+                            (profile_dir.as_ref().unwrap().join(prof_p), chroot_p)
+                        })
                 )
                 .chain(
                     c.absolute
