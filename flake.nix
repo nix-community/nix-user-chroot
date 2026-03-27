@@ -1,5 +1,5 @@
 {
-  inputs.nixpkgs.url = "NixOS/nixpkgs/unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   outputs =
     inputs:
     let
@@ -12,7 +12,7 @@
     in
     {
       devShells = forAllSystems (system: {
-        default = pkgs.callPackage ./shell.nix { inherit pkgs; };
+        default = pkgs.${system}.callPackage ./shell.nix { };
       });
     };
 }

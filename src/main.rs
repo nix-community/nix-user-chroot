@@ -405,6 +405,26 @@ impl<'a> RunChroot<'a> {
 
         unshare(CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWUSER).expect("unshare failed");
 
+        // prepare pivot_root call:
+        // rootdir must be a mount point
+        mount(
+            Some(self.rootdir),
+            self.rootdir,
+            Some("none"),
+            MsFlags::MS_BIND | MsFlags::MS_REC,
+            NONE,
+        )
+        .expect("failed to bind mount rootdir to itself");
+
+        mount(
+            Some(self.rootdir),
+            self.rootdir,
+            Some("none"),
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC,
+            NONE,
+        )
+        .expect("failed to remount rootdir as private");
+
         // create /run/opengl-driver/lib in chroot, to behave like NixOS
         // (needed for nix pkgs with OpenGL or CUDA support to work)
         let ogldir = self.nixdir.join("var/nix/opengl-driver/lib");
@@ -533,8 +553,25 @@ impl<'a> RunChroot<'a> {
         });
 
         // chroot
-        unistd::chroot(self.rootdir)
-            .unwrap_or_else(|err| panic!("chroot({}): {}", self.rootdir.display(), err));
+        unistd::pivot_root(self.rootdir, &nix_mount).unwrap_or_else(|err| {
+            panic!(
+                "pivot_root({}, {}): {}",
+                self.rootdir.display(),
+                &nix_mount.display(),
+                err
+            )
+        });
+
+        // mount the store and hide the old root we fetch nixdir under the old root
+        let nix_store = nix_root.join(self.nixdir);
+        mount(
+            Some(&nix_store),
+            "/nix",
+            Some("none"),
+            MsFlags::MS_BIND | MsFlags::MS_REC,
+            NONE,
+        )
+        .unwrap_or_else(|_| panic!("failed to bind mount {} to /nix", nix_store.display()));
 
         env::set_current_dir("/").expect("cannot change directory to /");
 
