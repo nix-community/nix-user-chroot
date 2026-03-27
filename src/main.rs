@@ -117,19 +117,18 @@ impl DirEntryOrExplicitMount<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct PathConfig<'a> {
-    excludes: ExcludePaths<'a>,
-    #[serde(borrow)]
-    profile: HashMap<&'a Path, &'a Path>,
-    #[serde(borrow)]
-    absolute: HashMap<&'a Path, &'a Path>,
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default)]
+pub struct PathConfig {
+    excludes: ExcludePaths,
+    profile: HashMap<PathBuf, PathBuf>,
+    absolute: HashMap<PathBuf, PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct ExcludePaths<'a> {
-    #[serde(borrow)]
-    paths: HashSet<&'a Path>,
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default)]
+pub struct ExcludePaths {
+    paths: HashSet<PathBuf>,
 }
 
 pub struct RunChroot<'a> {
@@ -352,7 +351,7 @@ impl<'a> RunChroot<'a> {
         }
     }
 
-    fn run_chroot(&self, cmd: &str, args: &[String], path_config: Option<PathConfig<'_>>) {
+    fn run_chroot(&self, cmd: &str, args: &[String], path_config: Option<PathConfig>) {
         let cwd = env::current_dir().expect("cannot get current working directory");
 
         let uid = unistd::getuid();
@@ -385,40 +384,32 @@ impl<'a> RunChroot<'a> {
 
             let explicit_mounts = c.profile
                 .iter()
-                .map(|(s, d)| (*s, *d))
                 .filter(|(s, d)| if profile_dir.is_ok() {
                     true
                 } else {
-                    eprintln!("Warning: couldn't find a profile for user `{}`; skipping profile mount `{}` -> `{}`", &user.name, s.display(), d.display());
+                    log::warn!("couldn't find a profile for user `{}`; skipping profile mount `{}` -> `{}`", &user.name, s.display(), d.display());
                     false
                 })
-                .map(|(mut prof_p, chroot_p)| {
+                .map(|(prof_p, chroot_p)| {
                     // to allow for both "absolute" and relative paths in the profile relative mounts
-                    if prof_p.is_absolute() {
-                        prof_p = prof_p.strip_prefix("/").unwrap()
-                    }
-
-                    (prof_p, chroot_p)
+                    let prof_p = prof_p.strip_prefix("/").unwrap_or(prof_p);
+                    (profile_dir.as_ref().unwrap().join(prof_p), chroot_p)
                 })
-                .map(|(prof_p, chroot_p)| (profile_dir.as_ref().unwrap().join(prof_p), chroot_p))
                 .chain(
                     // TODO: this should actually probably happen first.
                     c.excludes.paths
                         .iter()
-                        .map(|&ex| (PathBuf::from("/dev/null"), ex))
+                        .map(|ex| (PathBuf::from("/dev/null"), ex))
                 )
                 .chain(
                     c.absolute
                         .iter()
-                        .map(|(s, d)| (*s, *d))
                         .inspect(|(src, _)| {
                             if !src.is_absolute() {
                                 panic!("Explicit mount sources (excluding profile mounts) must be absolute paths! `{}` is not absolute.", src.display())
                             }
                         })
-                        .map(|(src, dest)| {
-                            (src.to_owned(), dest)
-                        })
+                        .map(|(src, dest)| (src.clone(), dest))
                 )
                 .inspect(|(_, dest)| {
                     if !dest.is_absolute() {
@@ -442,11 +433,11 @@ impl<'a> RunChroot<'a> {
 
                     let parent = self.with_rootdir(&parent);
                     parent.bind_mount_entry(
-                        DirEntryOrExplicitMount::explicit_mount_with_dest_file_name(&src, &dest),
+                        DirEntryOrExplicitMount::explicit_mount_with_dest_file_name(&src, dest),
                     );
                 } else {
-                    eprintln!(
-                        "warning: explicit mount source `{}` doesn't seem to exist!",
+                    log::warn!(
+                        "explicit mount source `{}` doesn't seem to exist!",
                         src.display()
                     );
                 }
@@ -467,7 +458,7 @@ impl<'a> RunChroot<'a> {
 
         // remove the placeholders we used for the excludes
         if let Some(c) = path_config {
-            for &p in c.excludes.paths.iter() {
+            for p in c.excludes.paths.iter() {
                 let mount = self.rootdir.join(p.strip_prefix("/").unwrap());
                 log::info!("UNBIND {}", mount.display());
                 umount(&mount).unwrap();
@@ -585,10 +576,9 @@ fn main() {
         .unwrap_or_else(|err| panic!("failed to resolve nix directory {}: {}", &args[1], err));
 
     let path_config_file_path = nixdir.join("etc/nix-user-chroot/path-config.toml");
-    let config_file;
-    let config_file = if path_config_file_path.exists() {
-        config_file = fs::read_to_string(path_config_file_path).unwrap();
-        Some(toml::from_str(&config_file).unwrap())
+    let path_config = if path_config_file_path.exists() {
+        let contents = fs::read_to_string(&path_config_file_path).unwrap();
+        Some(toml::from_str(&contents).unwrap())
     } else {
         None
     };
@@ -596,7 +586,7 @@ fn main() {
     match unsafe { fork() } {
         Ok(ForkResult::Parent { child, .. }) => wait_for_child(&rootdir, child),
         Ok(ForkResult::Child) => {
-            RunChroot::new(&rootdir, &nixdir).run_chroot(&args[2], &args[3..], config_file)
+            RunChroot::new(&rootdir, &nixdir).run_chroot(&args[2], &args[3..], path_config)
         }
         Err(e) => {
             eprintln!("fork failed: {}", e);
