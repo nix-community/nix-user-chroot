@@ -7,15 +7,18 @@ on:
     types: [opened, reopened, synchronize]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - x86_64-unknown-linux-musl
-          - i686-unknown-linux-musl
-          - armv7-unknown-linux-musleabihf
-          - aarch64-unknown-linux-musl
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: i686-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -26,39 +29,14 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
-      - name: install aarch64-compiler cross-compiler
-        if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: |
-          sudo apt install gcc-aarch64-linux-gnu
-          mkdir .cargo
-          cat >.cargo/config <<EOF
-          [target.aarch64-unknown-linux-musl]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
-      - name: install armv7-compiler cross-compiler
-        if: matrix.target == 'armv7-unknown-linux-musleabihf'
-        run: |
-          sudo apt install gcc-arm-linux-gnueabihf
-          mkdir .cargo
-          cat >.cargo/config <<EOF
-          [target.armv7-unknown-linux-musleabihf]
-          linker = "arm-linux-gnueabihf-gcc"
-          EOF
       - name: Enable unprivileged user namespaces
         run: |
           sudo sysctl -w kernel.unprivileged_userns_clone=1
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Test
         uses: actions-rs/cargo@v1
-        if: matrix.target != 'armv7-unknown-linux-musleabihf' && matrix.target != 'aarch64-unknown-linux-musl'
         with:
           command: test
-          args: --target ${{ matrix.target }}
-      - name: Build
-        uses: actions-rs/cargo@v1
-        if: matrix.target == 'armv7-unknown-linux-musleabihf' || matrix.target == 'aarch64-unknown-linux-musl'
-        with:
-          command: build
           args: --target ${{ matrix.target }}
   lint:
     name: Linting (fmt + clippy)

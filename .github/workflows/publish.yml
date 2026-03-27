@@ -7,14 +7,16 @@ on:
 jobs:
   build:
     name: Publish binaries
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - i686-unknown-linux-musl
-          - armv7-unknown-linux-musleabihf
-          - aarch64-unknown-linux-musl
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: i686-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -25,30 +27,12 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
-      - name: set aarch64 gcc-prefix
-        if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: |
-          echo TARGET_PREFIX=aarch64-linux-gnu >> $GITHUB_ENV
-      - name: set armv7 gcc-prefix
-        if: matrix.target == 'armv7-unknown-linux-musleabihf'
-        run: |
-          echo TARGET_PREFIX=arm-linux-gnueabihf >> $GITHUB_ENV
-      - name: Setup compiler
-        run: |
-          [[ -z $TARGET_PREFIX ]] && exit 0
-          sudo apt install gcc-$TARGET_PREFIX
-          mkdir .cargo
-          cat >.cargo/config <<EOF
-          [target.${{ matrix.target }}]
-          linker = "${TARGET_PREFIX}-gcc"
-          EOF
-          echo STRIP_PREFIX="${TARGET_PREFIX}-" >> $GITHUB_ENV
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} --locked
       - name: Package
         run: |
           version=$(basename ${{ github.ref }})
-          ${STRIP_PREFIX}strip target/${{ matrix.target }}/release/nix-user-chroot
+          strip target/${{ matrix.target }}/release/nix-user-chroot
           install -D target/${{ matrix.target }}/release/nix-user-chroot dist/nix-user-chroot-bin-$version-${{ matrix.target }}
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
@@ -70,6 +54,6 @@ jobs:
         with:
             toolchain: stable
             override: true
-      - uses: katyo/publish-crates@v1
+      - uses: katyo/publish-crates@v2
         with:
           registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
