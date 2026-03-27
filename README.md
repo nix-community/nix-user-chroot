@@ -1,13 +1,5 @@
 # nix-user-chroot
-[![Build Status](https://travis-ci.com/nix-community/nix-user-chroot.svg?branch=master)](https://travis-ci.com/nix-community/nix-user-chroot)
-
-**Maintainance status:** unmaintained. I currently do not have any use for the
-tool and therefore do not activly fix bugs or add features. I don't expect many
-regressions over time as kernel APIs are stable but new use cases might break
-with it.  If you are a user having issues with it, you may also try out if
-[nix-portable](https://github.com/DavHau/nix-portable) solves your use case.  If
-you have recommendations from one over the other please, feel free to make a
-pull request to update this description.
+[![CI](https://github.com/nix-community/nix-user-chroot/actions/workflows/ci.yml/badge.svg)](https://github.com/nix-community/nix-user-chroot/actions/workflows/ci.yml)
 
 Rust rewrite of
 [lethalman's version](https://github.com/lethalman/nix-user-chroot)
@@ -15,10 +7,10 @@ to clarify the license situation.
 This forks also makes it possible to use the nix sandbox!
 
 Run and install nix as user without root permissions. Nix-user-chroot requires
-user namespaces to perform its task (available since linux 3.8). Note that this
-is not available for unprivileged users in some Linux distributions such as
-Red Hat Linux, CentOS when using the stock kernel. It should be
-available in Ubuntu, Debian and Arch Linux.
+unprivileged user namespaces (available since Linux 3.8). Most distributions
+support this but some restrict it by default — notably Ubuntu 23.10+ gates it
+behind AppArmor, and RHEL/CentOS 7 ship with it disabled. See below for how to
+check and enable it on your system.
 
 ## Check if your kernel supports user namespaces for unprivileged users
 
@@ -49,23 +41,33 @@ $ cat /proc/sys/kernel/unprivileged_userns_clone
 1
 ```
 
-<!-- Tested on Debian-based and on Arch-based. -->
+### Enabling user namespaces
 
-On Debian or Arch-based system this feature might be disabled by default.
-However they provide a [sysctl switch](https://superuser.com/a/1122977)
-to enable it at runtime.
+**Ubuntu 23.10+** restricts unprivileged user namespaces via AppArmor. Disable
+the restriction with:
 
-Note that there [may](https://lists.debian.org/debian-kernel/2020/03/msg00237.html) be [security implications](https://security.stackexchange.com/questions/209529/what-does-enabling-kernel-unprivileged-userns-clone-do) to enabling user namespaces.
+```console
+$ sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
 
-On RedHat / CentOS 7.4 user namespaces are disabled by default, but can be
-enabled by:
+To make it persistent, drop that line (without `sudo sysctl -w`) into
+`/etc/sysctl.d/99-userns.conf`. See
+[Ubuntu's security docs](https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces)
+for the rationale and per-binary alternatives.
 
-1. Adding `namespace.unpriv_enable=1` to the kernel boot parameters via `grubby`
-2. `echo "user.max_user_namespaces=15076" >> /etc/sysctl.conf` to increase the
-number of allowed namespaces above the default 0.
+**Older Debian / Arch** may have `kernel.unprivileged_userns_clone=0`; flip it
+to `1` via sysctl. Modern releases enable it by default.
 
-For more details, see the
-[RedHat Documentation](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux_atomic_host/7/html-single/getting_started_with_containers/index#user_namespaces_options)
+**RHEL / CentOS 7** ships with it disabled at the kernel level:
+
+1. Add `namespace.unpriv_enable=1` to the kernel boot parameters via `grubby`
+2. `echo "user.max_user_namespaces=15076" >> /etc/sysctl.conf`
+
+RHEL 8+ enables it by default.
+
+Note that unprivileged user namespaces have
+[a history of kernel CVEs](https://security.stackexchange.com/questions/209529);
+the distributions that restrict them do so deliberately.
 
 ## Download static binaries
 
@@ -165,31 +167,14 @@ paths = [
 
 ## Wishlist
 
-These are features the author would like to see, let me know, if you want to work
-on this:
+PRs welcome:
 
-### Add an `--install` flag:
-
-Instead of
-
-```console
-$ mkdir -m 0755 ~/.nix
-$ nix-user-chroot ~/.nix bash -c "curl -L https://nixos.org/nix/install | bash"
-```
-
-it should just be:
-
-```console
-$ nix-user-chroot --install
-```
-
-This assumes we just install to `$XDG_DATA_HOME` or `$HOME/.data/nix` by default.
-
-### Add a setuid version
-
-Since not all linux distributions allow user namespaces by default, we will need
-packages for those that install setuid binaries to achieve the same.
+- **`--install` flag** — collapse `mkdir ~/.nix && nix-user-chroot ~/.nix bash -c "curl ... | bash"` into a single command that defaults to `$XDG_DATA_HOME/nix`.
+- **home-manager integration** — a module that generates `path-config.toml` so users get working defaults (nscd exclusion, `/usr/bin/env`, etc.) without hand-writing TOML. See the [discussion in #75](https://github.com/nix-community/nix-user-chroot/pull/75).
+- **Directory excludes** — the current exclude mechanism bind-mounts `/dev/null` as a placeholder, which only works for files. Excluding a directory needs a different approach (empty tmpfs or similar).
+- **setuid fallback** — for systems where unprivileged user namespaces are restricted (Ubuntu 23.10+, locked-down servers) and the user can't change sysctls. A setuid helper could set up the namespace on their behalf.
 
 ## Similar projects
 
-[nix-portable](https://github.com/DavHau/nix-portable)
+- [nix-portable](https://github.com/DavHau/nix-portable) — zero-config, also works without unprivileged user namespaces (via proot fallback). Better suited for distributing nix-based tools; nix-user-chroot is aimed at standing up a persistent nix environment on a machine where you lack root.
+- [bwrap](https://github.com/containers/bubblewrap) — the general-purpose sandbox primitive. nix-user-chroot is essentially a nix-aware preset on top of the same kernel APIs.
