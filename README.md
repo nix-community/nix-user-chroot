@@ -136,6 +136,33 @@ $ ln -s /usr/lib/x86_64-linux-gnu/libcuda.so.1 /nix/var/nix/opengl-driver/lib
 If this directory didn't exist when you first entered the nix user chroot, you
 will need to reenter for /run/opengl-driver/lib to be mounted.
 
+## Configuration
+
+nix-user-chroot reads an optional TOML config file from
+`<nixpath>/etc/nix-user-chroot/path-config.toml` (e.g.
+`~/.nix/etc/nix-user-chroot/path-config.toml`). All sections are optional.
+
+```toml
+[excludes]
+# Absolute paths that should NOT be mirrored into the chroot.
+# Useful for things like nscd sockets that break nix's own resolver.
+paths = [
+    "/var/run/nscd/socket",
+]
+
+[profile]
+# Mount paths from your per-user nix profile
+# (<nixpath>/var/nix/profiles/per-user/$USER/profile/...) into the chroot.
+# Keys are profile-relative (leading / is stripped), values are absolute
+# destinations in the chroot.
+"bin/env" = "/usr/bin/env"
+
+[absolute]
+# Mount arbitrary host paths into the chroot.
+# Both keys (sources) and values (destinations) must be absolute.
+"/home/me/chroot-passwd" = "/etc/passwd"
+```
+
 ## Wishlist
 
 These are features the author would like to see, let me know, if you want to work
