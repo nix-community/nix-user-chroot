@@ -245,7 +245,7 @@ impl<'a> RunChroot<'a> {
                     Ok(dir) => dir,
                     Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
                         log::warn!(
-                            "don't have persmission to access directory {}, skipping...",
+                            "don't have permission to access directory {}, skipping...",
                             entry.path().display()
                         );
                         return;
@@ -504,8 +504,6 @@ impl<'a> RunChroot<'a> {
         if let Ok(mut file) = fs::File::create("/proc/self/setgroups") {
             let _ = file.write_all(b"deny");
         }
-
-        // println!("cap: {}", std::fs::read_to_string(format!("/proc/self/status")).unwrap());
 
         let mut uid_map =
             fs::File::create("/proc/self/uid_map").expect("failed to open /proc/self/uid_map");
