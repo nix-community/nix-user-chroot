@@ -69,12 +69,24 @@ while [[ "$(gh pr view "$pr_number" --json state --jq .state)" != "MERGED" ]]; d
   sleep 10
 done
 
-# tag the merged commit; this triggers the publish workflow
+# tag the merged commit; this triggers the publish workflow which
+# creates the GitHub release and uploads binaries
 git pull "git@github.com:${REPO}" "$MAIN_BRANCH"
 git tag "${version}"
 git push origin "${version}"
 
-gh release create "${version}" --draft --title "${version}" --generate-notes
+# Wait for the publish workflow to create the release, then add notes.
+# upload-release-action creates a bare release with no title/body.
+echo "Waiting for publish workflow to create the release..."
+while ! gh release view "${version}" --repo "${REPO}" >/dev/null 2>&1; do
+  sleep 5
+done
 
-echo "Release ${version} tagged. Publish workflow will upload binaries and push to crates.io."
-echo "Review and publish the draft at: https://github.com/${REPO}/releases"
+prev_tag=$(git tag -l --sort=-version:refname | grep -v "^${version}\$" | head -1)
+notes=$(gh api "repos/${REPO}/releases/generate-notes" \
+  -f tag_name="${version}" \
+  -f previous_tag_name="${prev_tag}" \
+  --jq .body)
+gh release edit "${version}" --repo "${REPO}" --title "${version}" --notes "${notes}"
+
+echo "Release ${version} published: https://github.com/${REPO}/releases/tag/${version}"
