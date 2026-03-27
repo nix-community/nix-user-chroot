@@ -34,8 +34,7 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Install busybox for path_config tests
         run: |
-          sudo apt-get update
-          sudo apt-get install -y busybox-static
+          sudo apt-get install -y --no-install-recommends busybox-static
           echo "NIX_USER_CHROOT_TEST_BUSYBOX=$(which busybox)" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --target ${{ matrix.target }}
