@@ -208,33 +208,29 @@ impl<'a> RunChroot<'a> {
         } else if p.exists() {
             Ok(p)
         } else {
-            // peel off components of the path, seeing if at some point we
-            // hit a symlink containing `/nix` which would explain why we
-            // couldn't stat the file
-            let mut i = 0;
-            let mut path = p.clone();
+            // `p` doesn't exist as-is, but one of its intermediate components
+            // may be a symlink into `/nix` that we haven't rewritten yet.
+            // Walk from the root onwards, resolving the first such symlink we
+            // find, then re-append the remaining components and retry.
+            let mut prefix = PathBuf::new();
+            let mut components = p.components();
 
-            // NOTE: this is the bad N^2 way of doing this; we should actually
-            // resolve the path from the root onwards
-            while path.pop() {
-                i += 1;
+            while let Some(c) = components.next() {
+                prefix.push(c);
 
-                if path.is_symlink()
-                    && path
+                if prefix.is_symlink()
+                    && prefix
                         .read_link()
-                        .map(|p| p.starts_with("/nix"))
+                        .map(|t| t.starts_with("/nix"))
                         .unwrap_or(false)
                 {
-                    // if we did find a parent that's a symlink, resolve it:
                     let actual_parent =
-                        self.resolve_nix_path_inner(path, stop_at_first_non_nix_path, depth + 1)?;
+                        self.resolve_nix_path_inner(prefix, stop_at_first_non_nix_path, depth + 1)?;
 
-                    // append the components we stripped off to the resolved parent:
-                    let parts = p.iter().collect::<Vec<_>>();
-                    let stripped = &parts[parts.len() - i..];
-                    let path = actual_parent.join(stripped.iter().collect::<PathBuf>());
+                    // re-append the components we haven't consumed yet:
+                    let rest: PathBuf = components.collect();
+                    let path = actual_parent.join(rest);
 
-                    // and try again:
                     return self.resolve_nix_path_inner(
                         path,
                         stop_at_first_non_nix_path,
@@ -655,4 +651,60 @@ fn main() {
             eprintln!("fork failed: {}", e);
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify resolve_nix_path rewrites /nix symlinks found in intermediate
+    /// path components, not just the final one.
+    #[test]
+    fn resolve_intermediate_nix_symlink() {
+        let tmp = mkdtemp::mkdtemp("nix-user-chroot-test.XXXXXX").unwrap();
+
+        // Simulate a nix store: tmp/store/foo/bar exists
+        let nixdir = tmp.join("nixroot");
+        let real_target = nixdir.join("store/foo/bar");
+        fs::create_dir_all(real_target.parent().unwrap()).unwrap();
+        fs::write(&real_target, b"hello").unwrap();
+
+        // A symlink that points into /nix (which doesn't exist on the host
+        // during tests): tmp/link -> /nix/store/foo
+        let link = tmp.join("link");
+        symlink("/nix/store/foo", &link).unwrap();
+
+        // rootdir is unused by resolve_nix_path, supply a dummy
+        let rc = RunChroot::new(&tmp, &nixdir);
+
+        // Input path goes through the symlink: tmp/link/bar
+        // Expected: /nix/store/foo gets rewritten to nixdir/store/foo,
+        // yielding nixdir/store/foo/bar.
+        let input = link.join("bar");
+        let resolved = rc.resolve_nix_path(input, false).unwrap();
+        assert_eq!(resolved, real_target);
+
+        // A deeper chain: link2 -> /nix/store, then link2/foo/bar
+        let link2 = tmp.join("link2");
+        symlink("/nix/store", &link2).unwrap();
+        let resolved = rc.resolve_nix_path(link2.join("foo/bar"), false).unwrap();
+        assert_eq!(resolved, real_target);
+
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn resolve_missing_path_no_nix_symlink() {
+        let tmp = mkdtemp::mkdtemp("nix-user-chroot-test.XXXXXX").unwrap();
+        let nixdir = tmp.join("nixroot");
+        fs::create_dir_all(&nixdir).unwrap();
+
+        let rc = RunChroot::new(&tmp, &nixdir);
+        let err = rc
+            .resolve_nix_path(tmp.join("does/not/exist"), false)
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+
+        fs::remove_dir_all(&tmp).unwrap();
+    }
 }
