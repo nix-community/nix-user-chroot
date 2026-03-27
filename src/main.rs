@@ -66,7 +66,7 @@ pub enum DirEntryOrExplicitMount<'a> {
     /// This path *can* be `/`.
     ExplicitMount {
         src: &'a Path,
-        dst_file_name: Option<&'a OsStr>,
+        dst_file_name: &'a OsStr,
     },
 }
 
@@ -81,20 +81,28 @@ impl<'a> DirEntryOrExplicitMount<'a> {
         mount: &'a Path,
         dst_file: &'a (impl AsRef<Path> + 'a),
     ) -> Self {
+        let dst_file = dst_file.as_ref();
+        let dst_file_name = dst_file.file_name().unwrap_or_else(|| {
+            panic!(
+                "explicit mount destination `{}` has no file name component \
+                 (must not be `/` or end in `..`)",
+                dst_file.display()
+            )
+        });
         DirEntryOrExplicitMount::ExplicitMount {
             src: mount,
-            dst_file_name: dst_file.as_ref().file_name(),
+            dst_file_name,
         }
     }
 }
 
 impl DirEntryOrExplicitMount<'_> {
-    fn file_name(&self) -> Option<OsString> {
+    fn file_name(&self) -> OsString {
         use DirEntryOrExplicitMount::*;
 
         match self {
-            DirEntry(d) => Some(d.file_name()),
-            ExplicitMount { dst_file_name, .. } => dst_file_name.map(|p| p.to_owned()),
+            DirEntry(d) => d.file_name(),
+            ExplicitMount { dst_file_name, .. } => (*dst_file_name).to_owned(),
         }
     }
 
@@ -242,7 +250,7 @@ impl<'a> RunChroot<'a> {
     // We assume `entry` exists and is actually a directory (not a file or symlink),
     fn bind_mount_directory<'p>(&self, entry: impl Into<DirEntryOrExplicitMount<'p>>) {
         let entry = entry.into();
-        let mountpoint = self.rootdir.join(entry.file_name().unwrap_or_default());
+        let mountpoint = self.rootdir.join(entry.file_name());
 
         // if the destination doesn't exist we can proceed as normal
         if !mountpoint.exists() {
@@ -287,7 +295,7 @@ impl<'a> RunChroot<'a> {
     // We assume `entry` exists and is actually a file (not a directory or symlink).
     fn bind_mount_file<'p>(&self, entry: impl Into<DirEntryOrExplicitMount<'p>>) {
         let entry = entry.into();
-        let mountpoint = self.rootdir.join(entry.file_name().unwrap_or_default());
+        let mountpoint = self.rootdir.join(entry.file_name());
         log::info!(
             "BIND FILE {} -> {}",
             entry.path().display(),
@@ -306,7 +314,7 @@ impl<'a> RunChroot<'a> {
     // points to a `/nix` path (which we'll attempt to resolve against `self.nixdir`).
     fn mirror_symlink<'p>(&self, entry: impl Into<DirEntryOrExplicitMount<'p>>) {
         let entry = entry.into();
-        let link_path = self.rootdir.join(entry.file_name().unwrap_or_default());
+        let link_path = self.rootdir.join(entry.file_name());
         if link_path.exists() {
             return;
         }
@@ -348,7 +356,7 @@ impl<'a> RunChroot<'a> {
                     dst_file_name = d.file_name();
                     ExplicitMount {
                         src: &adj_path,
-                        dst_file_name: Some(&dst_file_name),
+                        dst_file_name: &dst_file_name,
                     }
                 }
                 ExplicitMount { dst_file_name, .. } => ExplicitMount {
