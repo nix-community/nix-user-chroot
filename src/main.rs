@@ -405,6 +405,26 @@ impl<'a> RunChroot<'a> {
 
         unshare(CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWUSER).expect("unshare failed");
 
+        // prepare pivot_root call:
+        // rootdir must be a mount point
+        mount(
+            Some(self.rootdir),
+            self.rootdir,
+            Some("none"),
+            MsFlags::MS_BIND | MsFlags::MS_REC,
+            NONE,
+        )
+        .expect("failed to bind mount rootdir to itself");
+
+        mount(
+            Some(self.rootdir),
+            self.rootdir,
+            Some("none"),
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC,
+            NONE,
+        )
+        .expect("failed to remount rootdir as private");
+
         // create /run/opengl-driver/lib in chroot, to behave like NixOS
         // (needed for nix pkgs with OpenGL or CUDA support to work)
         let ogldir = self.nixdir.join("var/nix/opengl-driver/lib");

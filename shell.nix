@@ -7,6 +7,8 @@ pkgs.stdenv.mkDerivation {
     bashInteractive
     cargo
     rustc
+    clippy
+    rustfmt
   ];
   # Used by tests/path_config.rs to get a shell that works inside a
   # chroot with a fake (empty) nixdir, where /bin/sh -> /nix/store/...
