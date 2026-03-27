@@ -7,3 +7,7 @@
 
 # Example nix directory
 /.nix/
+
+# Direnv
+.direnv
+.envrc

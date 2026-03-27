@@ -1,5 +1,5 @@
 {
-  inputs.nixpkgs.url = "NixOS/nixpkgs/unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   outputs =
     inputs:
     let
