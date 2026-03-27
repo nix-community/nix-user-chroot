@@ -10,7 +10,7 @@ fn run_nix_install() {
     let tempdir = mkdtemp::mkdtemp("/tmp/nix.XXXXXX").unwrap();
 
     let result = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--target",
             TARGET,
