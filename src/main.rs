@@ -363,9 +363,19 @@ impl<'a> RunChroot<'a> {
         }
 
         let path = entry.path();
-        let stat = entry
-            .metadata()
-            .unwrap_or_else(|err| panic!("cannot get stat of {}: {}", path.display(), err));
+        let stat = match entry.metadata() {
+            Ok(m) => m,
+            // TOCTOU: entry was listed by read_dir but has since disappeared
+            // (common in /tmp, /run). Skip rather than abort the whole chroot.
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                log::debug!(
+                    "{} disappeared during mirror pass, skipping",
+                    path.display()
+                );
+                return;
+            }
+            Err(e) => panic!("cannot get stat of {}: {}", path.display(), e),
+        };
 
         if stat.is_dir() {
             self.bind_mount_directory(entry);
@@ -374,7 +384,16 @@ impl<'a> RunChroot<'a> {
         } else if stat.file_type().is_symlink() {
             self.mirror_symlink(entry);
         } else {
-            panic!("don't know what to do with: {}", path.display())
+            // Sockets, FIFOs, device nodes, etc. We can hit these when an
+            // explicit mount causes the / mirror pass to recurse into a dir
+            // like /tmp that contains them. Silently skipping matches
+            // pre-PR behaviour and is harmless — the path just won't exist
+            // in the chroot.
+            log::debug!(
+                "skipping special file {} (type {:?})",
+                path.display(),
+                stat.file_type()
+            );
         }
     }
 
