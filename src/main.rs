@@ -17,7 +17,7 @@ use nix::{
     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
     unistd::{self, fork, ForkResult},
 };
-use serde_derive::Deserialize;
+use serde::Deserialize;
 
 mod mkdtemp;
 
@@ -547,13 +547,13 @@ impl<'a> RunChroot<'a> {
         let mut uid_map =
             fs::File::create("/proc/self/uid_map").expect("failed to open /proc/self/uid_map");
         uid_map
-            .write_all(format!("{} {} 1", uid, uid).as_bytes())
+            .write_all(format!("{uid} {uid} 1").as_bytes())
             .expect("failed to write new uid mapping to /proc/self/uid_map");
 
         let mut gid_map =
             fs::File::create("/proc/self/gid_map").expect("failed to open /proc/self/gid_map");
         gid_map
-            .write_all(format!("{} {} 1", gid, gid).as_bytes())
+            .write_all(format!("{gid} {gid} 1").as_bytes())
             .expect("failed to write new gid mapping to /proc/self/gid_map");
 
         // restore cwd
@@ -580,7 +580,7 @@ fn wait_for_child(rootdir: &Path, child_pid: unistd::Pid) -> ! {
             }
             Ok(WaitStatus::Signaled(_, signal, _)) => {
                 kill(unistd::getpid(), signal).unwrap_or_else(|err| {
-                    panic!("failed to send {} signal to our self: {}", signal, err)
+                    panic!("failed to send {signal} signal to our self: {err}")
                 });
             }
             Ok(WaitStatus::Exited(_, status)) => {
@@ -588,11 +588,11 @@ fn wait_for_child(rootdir: &Path, child_pid: unistd::Pid) -> ! {
                 break;
             }
             Ok(what) => {
-                eprintln!("unexpected wait event happend: {:?}", what);
+                eprintln!("unexpected wait event happend: {what:?}");
                 break;
             }
             Err(e) => {
-                eprintln!("waitpid failed: {}", e);
+                eprintln!("waitpid failed: {e}");
                 break;
             }
         };
@@ -618,7 +618,7 @@ fn main() {
     }
 
     let rootdir = mkdtemp::mkdtemp("nix-chroot.XXXXXX")
-        .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
+        .unwrap_or_else(|err| panic!("failed to create temporary directory: {err}"));
 
     let nixdir = fs::canonicalize(&args[1])
         .unwrap_or_else(|err| panic!("failed to resolve nix directory {}: {}", &args[1], err));
@@ -667,7 +667,7 @@ fn main() {
             RunChroot::new(&rootdir, &nixdir).run_chroot(&args[2], &args[3..], path_config)
         }
         Err(e) => {
-            eprintln!("fork failed: {}", e);
+            eprintln!("fork failed: {e}");
         }
     };
 }
