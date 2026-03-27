@@ -17,7 +17,7 @@ use nix::{
     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
     unistd::{self, fork, ForkResult},
 };
-use serde_derive::Deserialize;
+use serde::Deserialize;
 
 mod mkdtemp;
 
