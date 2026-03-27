@@ -8,5 +8,4 @@ pkgs.stdenv.mkDerivation {
     cargo
 		rustc
   ];
-  RUST_SRC_PATH = pkgs.rustPlatform.rustcSrc;
 }

@@ -11,7 +11,7 @@ use std::{
 };
 
 use nix::{
-    mount::{mount, unmount, MsFlags},
+    mount::{mount, umount, MsFlags},
     sched::{unshare, CloneFlags},
     sys::signal::{kill, Signal},
     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
@@ -71,7 +71,7 @@ pub enum DirEntryOrExplicitMount<'a> {
 }
 
 impl<'a> From<&'a DirEntry> for DirEntryOrExplicitMount<'a> {
-    fn from(de: &'a DirEntry) -> DirEntryOrExplicitMount {
+    fn from(de: &'a DirEntry) -> DirEntryOrExplicitMount<'a> {
         DirEntryOrExplicitMount::DirEntry(de)
     }
 }
@@ -325,12 +325,12 @@ impl<'a> RunChroot<'a> {
                 DirEntry(d) => {
                     dst_file_name = d.file_name();
                     ExplicitMount {
-                        src: &*adj_path,
+                        src: &adj_path,
                         dst_file_name: Some(&dst_file_name),
                     }
                 }
                 ExplicitMount { dst_file_name, .. } => ExplicitMount {
-                    src: &*adj_path,
+                    src: &adj_path,
                     dst_file_name,
                 },
             };
@@ -442,7 +442,7 @@ impl<'a> RunChroot<'a> {
 
                     let parent = self.with_rootdir(&parent);
                     parent.bind_mount_entry(
-                        DirEntryOrExplicitMount::explicit_mount_with_dest_file_name(&*src, &dest),
+                        DirEntryOrExplicitMount::explicit_mount_with_dest_file_name(&src, &dest),
                     );
                 } else {
                     eprintln!(
@@ -590,7 +590,7 @@ fn main() {
     let config_file;
     let config_file = if path_config_file_path.exists() {
         config_file = fs::read_to_string(path_config_file_path).unwrap();
-        Some(toml::from_str(&*config_file).unwrap())
+        Some(toml::from_str(&config_file).unwrap())
     } else {
         None
     };
