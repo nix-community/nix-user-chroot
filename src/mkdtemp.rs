@@ -1,26 +1,13 @@
-use nix::errno::Errno;
 use std::env;
-use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
-mod ffi {
-    extern "C" {
-        pub fn mkdtemp(template: *mut libc::c_char) -> *mut libc::c_char;
-    }
-}
-
+/// Thin wrapper around `nix::unistd::mkdtemp` that prepends $TMPDIR
+/// when the template is relative.
 pub fn mkdtemp(template: &str) -> nix::Result<PathBuf> {
-    let mut tmpdir = env::temp_dir();
-    tmpdir.push(template);
-    let mut buf = tmpdir.into_os_string().into_vec();
-    buf.push(b'\0'); // make a c string
-
-    let res = unsafe { ffi::mkdtemp(buf.as_mut_ptr() as *mut libc::c_char) };
-    if res.is_null() {
-        Err(Errno::last())
+    let template = if template.starts_with('/') {
+        PathBuf::from(template)
     } else {
-        buf.pop(); // strip null byte
-        Ok(PathBuf::from(OsString::from_vec(buf)))
-    }
+        env::temp_dir().join(template)
+    };
+    nix::unistd::mkdtemp(&template)
 }
