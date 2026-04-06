@@ -30,11 +30,6 @@ if [[ -n $uncommitted_changes ]]; then
   exit 1
 fi
 git pull "git@github.com:${REPO}" "$MAIN_BRANCH"
-unpushed_commits=$(git log --format=oneline "origin/${MAIN_BRANCH}..${MAIN_BRANCH}")
-if [[ -n $unpushed_commits ]]; then
-  echo -e "\nThere are unpushed changes, exiting:\n$unpushed_commits" >&2
-  exit 1
-fi
 
 if git tag -l | grep -q "^${version}\$"; then
   echo "Tag ${version} already exists, exiting" >&2
