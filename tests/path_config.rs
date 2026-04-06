@@ -173,9 +173,10 @@ paths = ["{target}"]
 fn profile_mount() {
     let env = TestEnv::new();
 
-    let user = std::env::var("USER")
-        .or_else(|_| std::env::var("LOGNAME"))
-        .expect("need $USER or $LOGNAME to locate the per-user profile");
+    let user = nix::unistd::User::from_uid(nix::unistd::getuid())
+        .unwrap()
+        .expect("current uid has no passwd entry")
+        .name;
 
     // Build the profile symlink chain nix-user-chroot expects:
     //   <nixdir>/var/nix/profiles/per-user/<user>/profile -> profile-1
