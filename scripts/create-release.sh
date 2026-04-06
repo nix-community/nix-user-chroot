@@ -70,10 +70,11 @@ git pull "git@github.com:${REPO}" "$MAIN_BRANCH"
 git tag "${version}"
 git push origin "${version}"
 
-# Wait for the publish workflow to create the release, then add notes.
-# upload-release-action creates a bare release with no title/body.
-echo "Waiting for publish workflow to create the release..."
-while ! gh release view "${version}" --repo "${REPO}" >/dev/null 2>&1; do
+# The publish workflow creates an empty release first, then matrix jobs
+# upload assets. Wait for at least one asset so we know the workflow
+# actually ran before we set the notes.
+echo "Waiting for publish workflow to upload assets..."
+while [[ "$(gh release view "${version}" --repo "${REPO}" --json assets --jq '.assets | length' 2>/dev/null || echo 0)" == "0" ]]; do
   sleep 5
 done
 
