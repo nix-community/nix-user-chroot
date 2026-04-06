@@ -19,6 +19,7 @@ use nix::{
 };
 use serde::Deserialize;
 
+mod install;
 mod mkdtemp;
 
 const NONE: Option<&'static [u8]> = None;
@@ -397,7 +398,13 @@ impl<'a> RunChroot<'a> {
         }
     }
 
-    fn run_chroot(&self, cmd: &str, args: &[String], path_config: Option<PathConfig>) {
+    fn run_chroot(
+        &self,
+        cmd: &str,
+        args: &[String],
+        path_config: Option<PathConfig>,
+        map_root: bool,
+    ) {
         let cwd = env::current_dir().expect("cannot get current working directory");
 
         let uid = unistd::getuid();
@@ -581,16 +588,23 @@ impl<'a> RunChroot<'a> {
             let _ = file.write_all(b"deny");
         }
 
+        // Normal operation maps our uid to itself so files created inside the
+        // chroot are owned by the real user on the host. --install instead
+        // maps us to root so nix-installer's EUID==0 checks pass; everything
+        // it writes still lands as our real uid on the host filesystem.
+        let inner_uid = if map_root { 0 } else { uid.as_raw() };
+        let inner_gid = if map_root { 0 } else { gid.as_raw() };
+
         let mut uid_map =
             fs::File::create("/proc/self/uid_map").expect("failed to open /proc/self/uid_map");
         uid_map
-            .write_all(format!("{uid} {uid} 1").as_bytes())
+            .write_all(format!("{inner_uid} {uid} 1").as_bytes())
             .expect("failed to write new uid mapping to /proc/self/uid_map");
 
         let mut gid_map =
             fs::File::create("/proc/self/gid_map").expect("failed to open /proc/self/gid_map");
         gid_map
-            .write_all(format!("{gid} {gid} 1").as_bytes())
+            .write_all(format!("{inner_gid} {gid} 1").as_bytes())
             .expect("failed to write new gid mapping to /proc/self/gid_map");
 
         // restore cwd
@@ -607,7 +621,7 @@ impl<'a> RunChroot<'a> {
     }
 }
 
-fn wait_for_child(rootdir: &Path, child_pid: unistd::Pid) -> ! {
+fn wait_for_child(rootdir: &Path, child_pid: unistd::Pid) -> i32 {
     let mut exit_status = 1;
     loop {
         match waitpid(child_pid, Some(WaitPidFlag::WUNTRACED)) {
@@ -638,7 +652,7 @@ fn wait_for_child(rootdir: &Path, child_pid: unistd::Pid) -> ! {
     fs::remove_dir_all(rootdir)
         .unwrap_or_else(|err| panic!("cannot remove tempdir {}: {}", rootdir.display(), err));
 
-    process::exit(exit_status);
+    exit_status
 }
 
 fn main() {
@@ -649,16 +663,67 @@ fn main() {
         .init();
 
     let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        eprintln!("Usage: {} <nixpath> <command>\n", args[0]);
-        process::exit(1);
-    }
+
+    let (nixpath_arg, cmd, cmd_args, map_root, installing): (
+        PathBuf,
+        String,
+        Vec<String>,
+        bool,
+        bool,
+    ) = if args.get(1).map(String::as_str) == Some("--install") {
+        let nixpath = args
+            .get(2)
+            .map(PathBuf::from)
+            .unwrap_or_else(install::default_nixpath);
+
+        if nixpath.join("store").exists() {
+            eprintln!(
+                "{}: store already exists, refusing to reinstall.",
+                nixpath.display()
+            );
+            eprintln!(
+                "Enter it with: nix-user-chroot {} bash -l",
+                nixpath.display()
+            );
+            process::exit(1);
+        }
+
+        fs::create_dir_all(&nixpath).unwrap_or_else(|e| {
+            eprintln!("failed to create {}: {e}", nixpath.display());
+            process::exit(1);
+        });
+
+        let installer = install::fetch_installer().unwrap_or_else(|e| {
+            eprintln!("failed to fetch nix-installer: {e}");
+            process::exit(1);
+        });
+        let (cmd, cmd_args) = install::installer_command(&installer);
+        (nixpath, cmd, cmd_args, true, true)
+    } else {
+        if args.len() < 3 {
+            eprintln!("Usage: {} <nixpath> <command>", args[0]);
+            eprintln!("       {} --install [nixpath]", args[0]);
+            process::exit(1);
+        }
+        (
+            PathBuf::from(&args[1]),
+            args[2].clone(),
+            args[3..].to_vec(),
+            false,
+            false,
+        )
+    };
 
     let rootdir = mkdtemp::mkdtemp("nix-chroot.XXXXXX")
         .unwrap_or_else(|err| panic!("failed to create temporary directory: {err}"));
 
-    let nixdir = fs::canonicalize(&args[1])
-        .unwrap_or_else(|err| panic!("failed to resolve nix directory {}: {}", &args[1], err));
+    let nixdir = fs::canonicalize(&nixpath_arg).unwrap_or_else(|err| {
+        panic!(
+            "failed to resolve nix directory {}: {}",
+            nixpath_arg.display(),
+            err
+        )
+    });
 
     let path_config_file_path = nixdir.join("etc/nix-user-chroot/path-config.toml");
     let path_config: Option<PathConfig> = if path_config_file_path.exists() {
@@ -699,12 +764,19 @@ fn main() {
     }
 
     match unsafe { fork() } {
-        Ok(ForkResult::Parent { child, .. }) => wait_for_child(&rootdir, child),
+        Ok(ForkResult::Parent { child, .. }) => {
+            let status = wait_for_child(&rootdir, child);
+            if installing && status == 0 {
+                install::print_next_steps(&nixpath_arg);
+            }
+            process::exit(status);
+        }
         Ok(ForkResult::Child) => {
-            RunChroot::new(&rootdir, &nixdir).run_chroot(&args[2], &args[3..], path_config)
+            RunChroot::new(&rootdir, &nixdir).run_chroot(&cmd, &cmd_args, path_config, map_root)
         }
         Err(e) => {
             eprintln!("fork failed: {e}");
+            process::exit(1);
         }
     };
 }
