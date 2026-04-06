@@ -38,7 +38,28 @@ jobs:
           echo "NIX_USER_CHROOT_TEST_BUSYBOX=$(which busybox)" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --target ${{ matrix.target }}
-
+  test-wsl:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: wsl-bash {0}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: Vampire/setup-wsl@v6
+        with:
+          distribution: Ubuntu-24.04
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Install busybox for path_config tests
+        run: |
+          sudo apt-get install -y --no-install-recommends busybox-static
+          echo "NIX_USER_CHROOT_TEST_BUSYBOX=$(which busybox)" >> "$GITHUB_ENV"
+      - name: Test
+        run: cargo test
   lint:
     name: Linting (fmt + clippy)
     runs-on: ubuntu-latest
