@@ -43,7 +43,7 @@ fi
 
 # bump version and regenerate lockfile
 sed -i -e "0,/^version = \".*\"/s//version = \"${version}\"/" Cargo.toml
-cargo update --workspace --offline
+cargo update --workspace
 git add Cargo.toml Cargo.lock
 
 # open a release PR so CI runs the full test matrix on the bump
