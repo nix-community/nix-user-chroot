@@ -440,13 +440,15 @@ impl<'a> RunChroot<'a> {
 
         // mount in explicit mounts (profile relative, absolute, and placeholders to "reserve" the excludes):
         if let Some(ref c) = path_config {
-            let user = unistd::User::from_uid(uid).unwrap().unwrap();
-            let profile_dir = self
-                .nixdir
-                .join("var/nix/profiles/per-user")
-                .join(&user.name)
-                .join("profile");
-            let profile_dir = self.resolve_nix_path(profile_dir, false);
+            let user = unistd::User::from_uid(uid).unwrap();
+            let profile_dir = user.as_ref().map(|user| {
+                self.nixdir
+                    .join("var/nix/profiles/per-user")
+                    .join(&user.name)
+                    .join("profile")
+            });
+            let profile_dir =
+                profile_dir.and_then(|profile_dir| self.resolve_nix_path(profile_dir, false).ok());
 
             // Excludes go first so their /dev/null placeholders reserve the
             // destination paths before profile/absolute mounts (or the / mirror
@@ -457,10 +459,10 @@ impl<'a> RunChroot<'a> {
                 .chain(
                     c.profile
                         .iter()
-                        .filter(|(s, d)| if profile_dir.is_ok() {
+                        .filter(|(s, d)| if profile_dir.is_some() {
                             true
                         } else {
-                            log::warn!("couldn't find a profile for user `{}`; skipping profile mount `{}` -> `{}`", &user.name, s.display(), d.display());
+                            log::warn!("couldn't find a profile for user `{}`; skipping profile mount `{}` -> `{}`", user.as_ref().map(|user| user.name.as_str()).unwrap_or("<unknown>"), s.display(), d.display());
                             false
                         })
                         .map(|(prof_p, chroot_p)| {
